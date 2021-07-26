@@ -5,126 +5,181 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
+use crate::billing::Rate;
 use crate::error::ClientError;
-
-/*
- * Client has:
- *  - Name
- *  - Address
- *  - BillingRate
- */
-
-/* Billing Rate has:
- * - A unit of billing
- * - An ammount to bill
- * - A currency for that ammount
- * - An effective date
- */
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-enum BillingUnit {
-    Month,
-    Week,
-    Day,
-    Hour,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-enum Currency {
-    CAD,
-    USD,
-    EUR,
-}
-
-impl fmt::Display for Currency {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let symbol = match self {
-            Currency::CAD => "CAD $",
-            Currency::USD => "USD $",
-            Currency::EUR => "€",
-        };
-
-        write!(f, "{}", symbol)
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct BillingRate {
-    amount: f32,
-    currency: Currency,
-    per: BillingUnit,
-}
-
-impl fmt::Display for BillingRate {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{:.2}/{:?}", self.currency, self.amount, self.per)
-    }
-}
+use crate::input;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Client {
+    key: String,
     name: String,
     address: String,
-    rates: BTreeMap<NaiveDate, BillingRate>,
+    rates: BTreeMap<NaiveDate, Rate>,
+    invoices: BTreeMap<usize, Invoice>,
+}
+
+impl Client {
+    fn new(key: &str, name: &str, address: &str) -> Self {
+        Self {
+            key: key.to_string(),
+            name: name.to_string(),
+            address: address.to_string(),
+            rates: BTreeMap::new(),
+            invoices: BTreeMap::new(),
+        }
+    }
+
+    fn update(&mut self, update: &Update) -> Result<(), ClientError> {
+        match update {
+            Update::Address(addr) => self.address = addr.clone(),
+            Update::Rate(effective, rate) => {
+                self.rates.insert(effective.clone(), rate.clone());
+            }
+            Update::Invoiced(invoice) => {
+                if invoice.number - self.invoices.len() != 1 {
+                    return Err(ClientError::InvoiceOutOfSequence {
+                        current: self.invoices.len(),
+                        found: invoice.number,
+                    });
+                }
+                self.invoices.insert(invoice.number, invoice.clone());
+            }
+            Update::Paid(num) => {
+                if let Some(invoice) = self.invoices.get_mut(num) {
+                    if !invoice.mark_paid() {
+                        return Err(ClientError::AlreadyPaid {
+                            client: self.key.clone(),
+                            number: num.clone(),
+                        });
+                    }
+                } else {
+                    return Err(ClientError::PaidOutOfSequence {
+                        client: self.key.clone(),
+                        number: num.clone(),
+                    });
+                }
+            }
+        };
+        Ok(())
+    }
+
+    fn rate_as_of(&self, date: NaiveDate) -> Option<&Rate> {
+        self.rates.range(..=date).next_back().map(|(_, rate)| rate)
+    }
+
+    fn current_rate(&self) -> Option<&Rate> {
+        let today = Local::today().naive_local();
+        self.rate_as_of(today)
+    }
+
+    fn billed_until(&self) -> Option<NaiveDate> {
+        self.invoices.values().last().map(|i| i.until)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-enum ClientUpdate {
+enum Update {
     Address(String),
-    Rate(NaiveDate, BillingRate),
+    Rate(NaiveDate, Rate),
+    Invoiced(Invoice),
+    Paid(usize),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-enum ClientChange {
+struct Invoice {
+    date: NaiveDate,
+    number: usize,
+    from: NaiveDate,
+    until: NaiveDate,
+    periods: f32,
+    subtotal: f32,
+    rate: Rate,
+    paid: bool,
+}
+
+impl Invoice {
+    fn mark_paid(&mut self) -> bool {
+        if self.paid {
+            false
+        } else {
+            self.paid = true;
+            true
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+enum Change {
     Added { name: String, address: String },
-    Updated(ClientUpdate),
+    Updated(Update),
     Removed,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-struct ClientEvent {
+struct Event {
     key: String,
     timestamp: DateTime<Utc>,
-    change: ClientChange,
+    change: Change,
 }
 
-fn load() -> Result<BTreeMap<String, Client>, ClientError> {
-    let file = fs::File::open(Path::new("clients"))?;
+impl Event {
+    pub fn new(key: &str, change: Change) -> Option<Self> {
+        Some(Self {
+            key: key.to_string(),
+            timestamp: Utc::now(),
+            change: change,
+        })
+    }
+}
+
+type Clients = BTreeMap<String, Client>;
+
+fn load() -> Result<Clients, ClientError> {
+    let file = fs::File::open(Path::new("history"))?;
     let reader = BufReader::new(file);
-    let events: Vec<ClientEvent> = serde_lexpr::from_reader(reader)?;
+    let events: Vec<Event> = serde_lexpr::from_reader(reader)?;
     let client_map = from_events(events)?;
     Ok(client_map)
 }
 
-fn client(key: &str) -> Result<Client, ClientError> {
-    let clients = load()?;
-    match clients.get(key) {
-        Some(client) => Ok(client.clone()),
-        None => Err(ClientError::NotFound {key: key.to_string()})
-    }
+fn client<'a>(
+    clients: &'a Clients,
+    key: &str,
+) -> Result<&'a Client, ClientError> {
+    clients.get(key).map_or(
+        Err(ClientError::NotFound {
+            key: key.to_string(),
+        }),
+        |c| Ok(c),
+    )
 }
 
-fn from_events(
-    events: Vec<ClientEvent>,
-) -> Result<BTreeMap<String, Client>, ClientError> {
-    let mut clients = BTreeMap::new();
+fn apply_event(clients: &mut Clients, event: &Event) {
+    match &event.change {
+        Change::Added { name, address } => {
+            clients.insert(
+                event.key.clone(),
+                Client::new(&event.key, name, address),
+            );
+        }
+        Change::Updated(update) => {
+            clients
+                .get_mut(&event.key)
+                .map(|client| client.update(update));
+        }
+        Change::Removed => {
+            clients.remove(&event.key);
+        }
+    };
+}
+
+fn from_events(events: Vec<Event>) -> Result<Clients, ClientError> {
+    let mut clients = Clients::new();
     for event in events.iter() {
-        match &event.change {
-            ClientChange::Added { name, address } => {
-                clients.insert(event.key.clone(), Client::new(name, address));
-            }
-            ClientChange::Updated(update) => {
-                clients
-                    .get_mut(&event.key)
-                    .map(|client| client.update(update));
-            }
-            ClientChange::Removed => {
-                clients.remove(&event.key);
-            }
-        };
+        apply_event(&mut clients, event);
     }
     Ok(clients)
 }
@@ -138,75 +193,87 @@ impl fmt::Display for Client {
 #[derive(Clap)]
 pub enum Command {
     List,
-    Rate{key: String},
+    Add,
+    Rates { key: String },
+    Invoice { key: String },
 }
 
 pub fn run_cmd(cmd: Command) -> Result<(), ClientError> {
-    match cmd {
-        Command::List => {
-            let clients = load()?;
-            for (key, client) in clients.iter() {
-                println!("{}: {}", key, client);
-            }
-        }
-        Command::Rate{key} =>  {
-            let client = client(&key)?;
-            if let Some(current) = client.current_rate() {
-                println!("Current Rate: {}\n", current);
-            } else {
-                println!("No current rate for client: {}", client.name);
-            }
-
-            println!("Historical Rates:\n");
-            for (effective, rate) in client.rates.iter() {
-                println!("{} effective {}", rate, effective);
-            }
-        }
-    }
+    let mut clients = load()?;
+    let event = match cmd {
+        Command::Add => add_client(),
+        Command::List => list_clients(&clients),
+        Command::Rates { key } => show_client_rates(client(&clients, &key)?),
+        Command::Invoice { key } => invoice(client(&clients, &key)?),
+    }?;
+    event.map(|e| {
+        println!("Adding event: {:?}", e);
+        apply_event(&mut clients, &e)
+    });
     Ok(())
 }
 
-impl Client {
-    fn new(name: &str, address: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            address: address.to_string(),
-            rates: BTreeMap::new(),
-        }
+type MaybeEvent = Result<Option<Event>, ClientError>;
+
+fn add_client() -> MaybeEvent {
+    let (key, name, address) = input::new_client()?;
+    println!("\nAdding client {}:\n\n{}\n{}", key, name, address);
+    if input::confirm("Proceed")? {
+        return Ok(Event::new(&key, Change::Added { name, address }));
+    }
+    Ok(None)
+}
+
+fn list_clients(clients: &Clients) -> MaybeEvent {
+    for (key, client) in clients.iter() {
+        println!("{}: {}", key, client);
+    }
+    Ok(None)
+}
+
+fn show_client_rates(client: &Client) -> MaybeEvent {
+    if let Some(current) = client.current_rate() {
+        println!("Current Rate: {}\n", current);
+    } else {
+        println!("No current rate for client: {}", client.name);
     }
 
-    fn update(&mut self, update: &ClientUpdate) {
-        match update {
-            ClientUpdate::Address(addr) => self.address = addr.clone(),
-            ClientUpdate::Rate(effective, rate) => {
-                self.rates.insert(effective.clone(), rate.clone());
-            }
-        };
+    println!("Historical Rates:\n");
+    for (effective, rate) in client.rates.iter() {
+        println!("{} effective {}", rate, effective);
     }
+    Ok(None)
+}
 
-    fn rate_as_of(&self, date: NaiveDate) -> Option<&BillingRate> {
-        self.rates.range(..date).next_back().map(|(_, rate)| rate)
-    }
+fn invoice(client: &Client) -> MaybeEvent {
+    let period = input::select_period(client.billed_until())?;
+    let rate = client.rate_as_of(period.from).ok_or(ClientError::NoRate {
+        key: client.key.clone(),
+        effective: period.from,
+    })?;
+    let today = Local::today().naive_local();
+    let subtotal = rate.amount * period.num_per(&rate.per);
 
-    fn current_rate(&self) -> Option<&BillingRate> {
-        let today = Local::today().naive_local();
-        self.rate_as_of(today)
-    }
+    println!("Start Date: {}, End Date: {}", period.from, period.until);
+    println!("Periods: {:.2}", period.num_per(&rate.per));
+    println!("Subtotal: {}{:.2}", rate.currency, subtotal);
+    Ok(None)
 }
 
 #[cfg(test)]
 mod tests {
 
     use super::*;
+    use crate::billing::{Currency, Unit};
+    use chrono::TimeZone;
     use const_format::formatcp;
     use serde_lexpr::{from_str, to_string, Error};
-    use chrono::TimeZone;
 
-    fn billing_rate() -> BillingRate {
-        BillingRate {
+    fn billing_rate() -> Rate {
+        Rate {
             amount: 1000.0,
             currency: Currency::USD,
-            per: BillingUnit::Month,
+            per: Unit::Month,
         }
     }
 
@@ -229,7 +296,7 @@ mod tests {
 
     #[test]
     fn serialize() -> Result<(), Error> {
-        let client = Client::new("Innotech", "Some Place");
+        let client = Client::new("innotech", "Innotech", "Some Place");
         let sexpr = to_string(&client)?;
         assert_eq!(sexpr, CLIENT_STR);
         Ok(())
@@ -243,11 +310,11 @@ mod tests {
 
     #[test]
     fn serialize_event() -> Result<(), Error> {
-        let change = ClientChange::Added {
+        let change = Change::Added {
             name: "Innotech".to_string(),
             address: "Some Place".to_string(),
         };
-        let event = ClientEvent {
+        let event = Event {
             key: "innotech".to_string(),
             change: change,
             timestamp: Utc.ymd(2021, 04, 15).and_hms(10, 30, 0),
@@ -266,12 +333,10 @@ mod tests {
 
     #[test]
     fn serialize_update() -> Result<(), Error> {
-        let update = ClientUpdate::Rate(
-            NaiveDate::from_ymd(2021, 04, 15),
-            billing_rate(),
-        );
-        let change = ClientChange::Updated(update);
-        let event = ClientEvent {
+        let update =
+            Update::Rate(NaiveDate::from_ymd(2021, 04, 15), billing_rate());
+        let change = Change::Updated(update);
+        let event = Event {
             key: "innotech".to_string(),
             change: change,
             timestamp: Utc.ymd(2021, 04, 16).and_hms(9, 30, 0),
@@ -286,7 +351,7 @@ mod tests {
 
     #[test]
     fn client_from_events() -> Result<(), Error> {
-        let events: Vec<ClientEvent> = from_str(EVENTS_STR)?;
+        let events: Vec<Event> = from_str(EVENTS_STR)?;
         let client_map = from_events(events).unwrap();
 
         let client = client_map.get("innotech").unwrap();
@@ -343,9 +408,9 @@ mod proptests {
         fn arb_billing_rate()
             (amount in any::<f32>().prop_map(f32::abs),
              currency in arb_currency(),
-             per in arb_billing_unit()) -> BillingRate {
+             per in arb_billing_unit()) -> Rate {
 
-            BillingRate { amount, currency, per}
+            Rate { amount, currency, per}
         }
     }
 

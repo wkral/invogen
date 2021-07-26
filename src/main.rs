@@ -39,32 +39,24 @@
  *  Client data stored in TOML?
  */
 
+mod billing;
 mod clients;
-mod invoices;
 mod error;
+mod input;
 
 use clap::Clap;
+use std::io;
 
 #[derive(Clap)]
 struct Opts {
     #[clap(subcommand)]
-    subcommand: SubCommand,
-}
-
-#[derive(Clap)]
-enum SubCommand {
-    Client(clients::Command),
-    Invoice(invoices::Command),
+    subcommand: clients::Command,
 }
 
 fn main() {
     let opts = Opts::parse();
 
-    match opts.subcommand {
-        SubCommand::Client(cmd) => {
-            if let Err(error) = clients::run_cmd(cmd) {
-                println!("Error: {}", error);
-            }
-        }
+    if let Err(error) = clients::run_cmd(opts.subcommand) {
+        println!("Error: {}", error);
     }
 }
