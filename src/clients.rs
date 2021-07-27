@@ -4,9 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs;
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::io::{BufReader, Read, Write};
 
 use crate::billing::Rate;
 use crate::error::ClientError;
@@ -71,8 +69,7 @@ impl Client {
     }
 
     fn current_rate(&self) -> Option<&Rate> {
-        let today = Local::today().naive_local();
-        self.rate_as_of(today)
+        self.rate_as_of(Local::today().naive_local())
     }
 
     fn billed_until(&self) -> Option<NaiveDate> {
@@ -101,13 +98,57 @@ struct Invoice {
 }
 
 impl Invoice {
+    fn new(
+        number: usize,
+        from: NaiveDate,
+        until: NaiveDate,
+        periods: f32,
+        subtotal: f32,
+        rate: Rate,
+    ) -> Self {
+        let date = Local::today().naive_local();
+
+        Self {
+            date,
+            number,
+            from,
+            until,
+            periods,
+            subtotal,
+            rate: rate.clone(),
+            paid: false,
+        }
+    }
+
     fn mark_paid(&mut self) -> bool {
         if self.paid {
-            false
-        } else {
-            self.paid = true;
-            true
+            return false;
         }
+        self.paid = true;
+        true
+    }
+}
+
+impl fmt::Display for Invoice {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Invoice: #{}\n\
+             Period: {} - {}\n\
+             {:.2} {}{} @ {}\n\n\
+             Subtotal: {currency}{:.2}\n\
+             Tax ():\n\n\
+             Total: {currency}",
+            self.number,
+            self.from,
+            self.until,
+            self.periods,
+            self.rate.per,
+            if self.periods != 1.0 { "s" } else { "" },
+            self.rate,
+            self.subtotal,
+            currency = self.rate.currency
+        )
     }
 }
 
@@ -126,20 +167,26 @@ struct Event {
 }
 
 impl Event {
-    pub fn new(key: &str, change: Change) -> Option<Self> {
-        Some(Self {
+    pub fn new(key: &str, change: Change) -> Self {
+        Self {
             key: key.to_string(),
             timestamp: Utc::now(),
             change: change,
-        })
+        }
+    }
+    pub fn new_update(key: &str, update: Update) -> Self {
+        Self {
+            key: key.to_string(),
+            timestamp: Utc::now(),
+            change: Change::Updated(update),
+        }
     }
 }
 
 type Clients = BTreeMap<String, Client>;
 
-fn load() -> Result<Clients, ClientError> {
-    let file = fs::File::open(Path::new("history"))?;
-    let reader = BufReader::new(file);
+fn load<T: Read>(history: T) -> Result<Clients, ClientError> {
+    let reader = BufReader::new(history);
     let events: Vec<Event> = serde_lexpr::from_reader(reader)?;
     let client_map = from_events(events)?;
     Ok(client_map)
@@ -198,8 +245,11 @@ pub enum Command {
     Invoice { key: String },
 }
 
-pub fn run_cmd(cmd: Command) -> Result<(), ClientError> {
-    let mut clients = load()?;
+pub fn run_cmd<T: Read + Write>(
+    cmd: Command,
+    history: T,
+) -> Result<(), ClientError> {
+    let mut clients = load(history)?;
     let event = match cmd {
         Command::Add => add_client(),
         Command::List => list_clients(&clients),
@@ -218,10 +268,8 @@ type MaybeEvent = Result<Option<Event>, ClientError>;
 fn add_client() -> MaybeEvent {
     let (key, name, address) = input::new_client()?;
     println!("\nAdding client {}:\n\n{}\n{}", key, name, address);
-    if input::confirm("Proceed")? {
-        return Ok(Event::new(&key, Change::Added { name, address }));
-    }
-    Ok(None)
+    Ok(input::confirm()?
+        .then(|| Event::new(&key, Change::Added { name, address })))
 }
 
 fn list_clients(clients: &Clients) -> MaybeEvent {
@@ -251,13 +299,20 @@ fn invoice(client: &Client) -> MaybeEvent {
         key: client.key.clone(),
         effective: period.from,
     })?;
-    let today = Local::today().naive_local();
     let subtotal = rate.amount * period.num_per(&rate.per);
 
-    println!("Start Date: {}, End Date: {}", period.from, period.until);
-    println!("Periods: {:.2}", period.num_per(&rate.per));
-    println!("Subtotal: {}{:.2}", rate.currency, subtotal);
-    Ok(None)
+    let invoice = Invoice::new(
+        client.invoices.len() + 1,
+        period.from,
+        period.until,
+        period.num_per(&rate.per),
+        subtotal,
+        rate.clone(),
+    );
+
+    println!("Adding invoice:\n\n{}", invoice);
+    Ok(input::confirm()?
+        .then(|| Event::new_update(&client.key, Update::Invoiced(invoice))))
 }
 
 #[cfg(test)]
@@ -268,6 +323,7 @@ mod tests {
     use chrono::TimeZone;
     use const_format::formatcp;
     use serde_lexpr::{from_str, to_string, Error};
+    use std::io::Cursor;
 
     fn billing_rate() -> Rate {
         Rate {
@@ -281,9 +337,11 @@ mod tests {
         (currency . USD) \
         (per . Month)";
 
-    const CLIENT_RAW: &str = "(name . \"Innotech\") \
+    const CLIENT_RAW: &str = "(key . \"innotech\") \
+         (name . \"Innotech\") \
          (address . \"Some Place\") \
-         (rates)";
+         (rates) \
+         (invoices)";
 
     const CLIENT_STR: &str = formatcp!("({})", CLIENT_RAW);
 
@@ -364,7 +422,8 @@ mod tests {
 
     #[test]
     fn list() -> Result<(), ClientError> {
-        run_cmd(Command::List)?;
+        let history = Cursor::new(EVENTS_STR.as_bytes().to_owned());
+        run_cmd(Command::List, history)?;
         Ok(())
     }
 }

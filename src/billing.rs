@@ -54,10 +54,13 @@ impl Period {
                 .end_of_iso8601_week()
                 .expect("Error in chrono utils"),
         );
-        let distinct_weeks =
-            self.from.iter_weeks().take_while(|d| d <= &self.until).count();
-        distinct_weeks as f32
-            * self.working_days() as f32 / full_period.working_days() as f32
+        let distinct_weeks = self
+            .from
+            .iter_weeks()
+            .take_while(|d| d <= &self.until)
+            .count();
+        distinct_weeks as f32 * self.working_days() as f32
+            / full_period.working_days() as f32
     }
 }
 
@@ -67,6 +70,19 @@ pub enum Unit {
     Week,
     Day,
     Hour { per_day: f32 },
+}
+
+impl fmt::Display for Unit {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let display = match self {
+            Unit::Month => "Month",
+            Unit::Week => "Week",
+            Unit::Day => "Day",
+            Unit::Hour { per_day: _ } => "Hour",
+        };
+
+        write!(f, "{}", display)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

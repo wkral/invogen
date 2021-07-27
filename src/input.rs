@@ -56,8 +56,8 @@ pub fn select_period(
     Ok(Period::new(from, until))
 }
 
-pub fn confirm(question: &str) -> Result<bool, InquireError> {
-    let resp = Text::new(&format!("{}", question))
+pub fn confirm() -> Result<bool, InquireError> {
+    let resp = Text::new("Confirm")
         .with_default("yes")
         .prompt()?
         .to_lowercase();

@@ -45,7 +45,8 @@ mod error;
 mod input;
 
 use clap::Clap;
-use std::io;
+use std::fs::File;
+use crate::error::ClientError;
 
 #[derive(Clap)]
 struct Opts {
@@ -53,10 +54,18 @@ struct Opts {
     subcommand: clients::Command,
 }
 
+fn run(opts: Opts) -> Result<(), ClientError> {
+
+    let history_file = File::open("history")?;
+
+    clients::run_cmd(opts.subcommand, history_file)?;
+    Ok(())
+}
+
 fn main() {
     let opts = Opts::parse();
 
-    if let Err(error) = clients::run_cmd(opts.subcommand) {
-        println!("Error: {}", error);
+    if let Err(error) = run(opts) {
+        eprintln!("{}", error);
     }
 }
