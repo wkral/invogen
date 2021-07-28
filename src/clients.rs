@@ -158,6 +158,12 @@ pub enum Command {
         #[clap(about = "key name to identify the client")]
         key: String,
     },
+    #[clap(about = "Set the billing rate for a client")]
+    SetRate {
+        #[clap(about = "key name to identify the client")]
+        key: String,
+    },
+    #[clap(about = "Set the tax rate(s) for a client")]
     SetTaxes {
         #[clap(about = "key name to identify the client")]
         key: String,
@@ -219,6 +225,7 @@ pub fn run_cmd<T: Read + Write>(
         Command::Rates { key } => show_client_rates(client(&clients, &key)?),
         Command::Invoice { key } => invoice(client(&clients, &key)?),
         Command::SetTaxes { key } => set_taxes(client(&clients, &key)?),
+        Command::SetRate { key } => set_rate(client(&clients, &key)?),
     }?;
     event.map(|e| {
         println!("Adding event: {:?}", e);
@@ -230,7 +237,7 @@ pub fn run_cmd<T: Read + Write>(
 type MaybeEvent = Result<Option<Event>, ClientError>;
 
 fn add_client() -> MaybeEvent {
-    let (key, name, address) = input::new_client()?;
+    let (key, name, address) = input::client()?;
     println!("\nAdding client {}:\n\n{}\n{}", key, name, address);
     Ok(input::confirm()?
         .then(|| Event::new(&key, Change::Added { name, address })))
@@ -258,7 +265,7 @@ fn show_client_rates(client: &Client) -> MaybeEvent {
 }
 
 fn invoice(client: &Client) -> MaybeEvent {
-    let period = input::select_period(client.billed_until())?;
+    let period = input::period(client.billed_until())?;
     let rate = client.rate_as_of(period.from).ok_or(ClientError::NoRate {
         key: client.key.clone(),
         effective: period.from,
@@ -272,7 +279,7 @@ fn invoice(client: &Client) -> MaybeEvent {
 }
 
 fn set_taxes(client: &Client) -> MaybeEvent {
-    let (taxes, effective) = input::select_taxes()?;
+    let (taxes, effective) = input::taxes()?;
 
     println!("Setting taxes for {} to:", client.name);
     for tax in taxes.iter() {
@@ -281,6 +288,16 @@ fn set_taxes(client: &Client) -> MaybeEvent {
     println!("Effective: {}", effective);
     Ok(input::confirm()?.then(|| {
         Event::new_update(&client.key, Update::Taxes(effective, taxes))
+    }))
+}
+
+fn set_rate(client: &Client) -> MaybeEvent {
+    let (rate, effective) = input::rate()?;
+
+    println!("Setting billing rate for {} to: {}", client.name, rate);
+    println!("Effective: {}", effective);
+    Ok(input::confirm()?.then(|| {
+        Event::new_update(&client.key, Update::Rate(effective, rate))
     }))
 }
 

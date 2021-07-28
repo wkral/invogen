@@ -3,6 +3,7 @@ use std::fmt;
 use chrono::{Datelike, Local, NaiveDate};
 use chrono_utilities::naive::DateTransitions;
 use serde::{Deserialize, Serialize};
+use strum_macros::{Display, EnumString, EnumVariantNames};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Period {
@@ -32,7 +33,6 @@ impl Period {
             Unit::Month => self.num_months(),
             Unit::Week => self.num_weeks(),
             Unit::Day => self.working_days() as f32,
-            Unit::Hour { per_day } => self.working_days() as f32 * per_day,
         }
     }
 
@@ -71,44 +71,39 @@ impl fmt::Display for Period {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(
+    Display,
+    EnumString,
+    EnumVariantNames,
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Clone,
+)]
 pub enum Unit {
     Month,
     Week,
     Day,
-    Hour { per_day: f32 },
 }
 
-impl fmt::Display for Unit {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let display = match self {
-            Unit::Month => "Month",
-            Unit::Week => "Week",
-            Unit::Day => "Day",
-            Unit::Hour { per_day: _ } => "Hour",
-        };
-
-        write!(f, "{}", display)
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(
+    Display,
+    EnumString,
+    EnumVariantNames,
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Clone,
+)]
 pub enum Currency {
+    #[strum(serialize = "CAD $")]
     CAD,
+    #[strum(serialize = "USD $")]
     USD,
+    #[strum(serialize = "EUR €")]
     EUR,
-}
-
-impl fmt::Display for Currency {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let symbol = match self {
-            Currency::CAD => "CAD $",
-            Currency::USD => "USD $",
-            Currency::EUR => "€",
-        };
-
-        write!(f, "{}", symbol)
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

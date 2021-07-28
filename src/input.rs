@@ -1,11 +1,16 @@
-use crate::billing::{Period, TaxRate};
+use crate::billing::{Currency, Period, Rate, TaxRate, Unit};
 use chrono::{Duration, Local, NaiveDate};
 use chrono_utilities::naive::DateTransitions;
-use inquire::{error::InquireError, Confirm, CustomType, DateSelect, Text};
+use inquire::{
+    error::InquireError, Confirm, CustomType, DateSelect, Select, Text,
+};
+use strum::VariantNames;
+
+use std::str::FromStr;
 
 type InputResult<T> = Result<T, InquireError>;
 
-pub fn new_client() -> InputResult<(String, String, String)> {
+pub fn client() -> InputResult<(String, String, String)> {
     let key = Text::new("Client key:").prompt()?.to_lowercase();
     let name = Text::new("Name:").prompt()?;
     let mut count = 0;
@@ -27,7 +32,7 @@ pub fn new_client() -> InputResult<(String, String, String)> {
     Ok((key, name, addr_lines.join("\n").trim().to_string()))
 }
 
-pub fn select_period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
+pub fn period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
     let today = Local::today().naive_local();
     let cur_eom = today
         .end_of_month()
@@ -55,7 +60,32 @@ pub fn select_period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
     Ok(Period::new(from, until))
 }
 
-pub fn select_taxes() -> InputResult<(Vec<TaxRate>, NaiveDate)> {
+pub fn rate() -> InputResult<(Rate, NaiveDate)> {
+    let amount: f32 = CustomType::new("Amount:")
+        .with_formatter(&|i| format!("${:.2}", i))
+        .with_error_message("Please type a valid number")
+        .prompt()?;
+    let currency = Select::new("Currency:", &Currency::VARIANTS)
+        .with_vim_mode(true)
+        .prompt()?
+        .value;
+
+    let unit = Select::new("Per:", &Unit::VARIANTS)
+        .with_vim_mode(true)
+        .prompt()?
+        .value;
+
+    let effective = DateSelect::new("Effective:").prompt()?;
+    let rate = Rate {
+        currency: Currency::from_str(&currency)
+            .expect("only selecting from variants"),
+        amount: amount,
+        per: Unit::from_str(&unit).expect("only selecting from variants"),
+    };
+    Ok((rate, effective))
+}
+
+pub fn taxes() -> InputResult<(Vec<TaxRate>, NaiveDate)> {
     let mut taxes: Vec<TaxRate> = Vec::new();
 
     loop {
