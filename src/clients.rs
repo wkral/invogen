@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{BufReader, Read, Write};
 
-use crate::billing::Rate;
+use crate::billing::{Invoice, Rate, TaxRate};
 use crate::error::ClientError;
 use crate::input;
 
@@ -17,6 +17,7 @@ pub struct Client {
     address: String,
     rates: BTreeMap<NaiveDate, Rate>,
     invoices: BTreeMap<usize, Invoice>,
+    taxes: BTreeMap<NaiveDate, Vec<TaxRate>>,
 }
 
 impl Client {
@@ -27,6 +28,7 @@ impl Client {
             address: address.to_string(),
             rates: BTreeMap::new(),
             invoices: BTreeMap::new(),
+            taxes: BTreeMap::new(),
         }
     }
 
@@ -37,7 +39,7 @@ impl Client {
                 self.rates.insert(effective.clone(), rate.clone());
             }
             Update::Invoiced(invoice) => {
-                if invoice.number - self.invoices.len() != 1 {
+                if invoice.number != self.next_invoice_num() {
                     return Err(ClientError::InvoiceOutOfSequence {
                         current: self.invoices.len(),
                         found: invoice.number,
@@ -60,6 +62,9 @@ impl Client {
                     });
                 }
             }
+            Update::Taxes(effective, taxes) => {
+                self.taxes.insert(effective.clone(), taxes.clone());
+            }
         };
         Ok(())
     }
@@ -68,12 +73,26 @@ impl Client {
         self.rates.range(..=date).next_back().map(|(_, rate)| rate)
     }
 
+    fn next_invoice_num(&self) -> usize {
+        self.invoices.len() + 1
+    }
+
+    fn taxes_as_of(&self, date: NaiveDate) -> Vec<TaxRate> {
+        self.taxes
+            .range(..=date)
+            .next_back()
+            .map(|(_, rates)| rates.clone())
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
     fn current_rate(&self) -> Option<&Rate> {
         self.rate_as_of(Local::today().naive_local())
     }
 
     fn billed_until(&self) -> Option<NaiveDate> {
-        self.invoices.values().last().map(|i| i.until)
+        self.invoices.values().last().map(|i| i.period.until)
     }
 }
 
@@ -83,73 +102,7 @@ enum Update {
     Rate(NaiveDate, Rate),
     Invoiced(Invoice),
     Paid(usize),
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-struct Invoice {
-    date: NaiveDate,
-    number: usize,
-    from: NaiveDate,
-    until: NaiveDate,
-    periods: f32,
-    subtotal: f32,
-    rate: Rate,
-    paid: bool,
-}
-
-impl Invoice {
-    fn new(
-        number: usize,
-        from: NaiveDate,
-        until: NaiveDate,
-        periods: f32,
-        subtotal: f32,
-        rate: Rate,
-    ) -> Self {
-        let date = Local::today().naive_local();
-
-        Self {
-            date,
-            number,
-            from,
-            until,
-            periods,
-            subtotal,
-            rate: rate.clone(),
-            paid: false,
-        }
-    }
-
-    fn mark_paid(&mut self) -> bool {
-        if self.paid {
-            return false;
-        }
-        self.paid = true;
-        true
-    }
-}
-
-impl fmt::Display for Invoice {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Invoice: #{}\n\
-             Period: {} - {}\n\
-             {:.2} {}{} @ {}\n\n\
-             Subtotal: {currency}{:.2}\n\
-             Tax ():\n\n\
-             Total: {currency}",
-            self.number,
-            self.from,
-            self.until,
-            self.periods,
-            self.rate.per,
-            if self.periods != 1.0 { "s" } else { "" },
-            self.rate,
-            self.subtotal,
-            currency = self.rate.currency
-        )
-    }
+    Taxes(NaiveDate, Vec<TaxRate>),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -183,26 +136,35 @@ impl Event {
     }
 }
 
+impl fmt::Display for Client {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} @ {}", self.name, self.address)
+    }
+}
+
+#[derive(Clap)]
+pub enum Command {
+    #[clap(about = "List all clients")]
+    List,
+    #[clap(about = "Add a new client")]
+    Add,
+    #[clap(about = "Show billing and tax rates for a client")]
+    Rates {
+        #[clap(about = "key name to identify the client")]
+        key: String,
+    },
+    #[clap(about = "Create a new invoice for a client")]
+    Invoice {
+        #[clap(about = "key name to identify the client")]
+        key: String,
+    },
+    SetTaxes {
+        #[clap(about = "key name to identify the client")]
+        key: String,
+    },
+}
+
 type Clients = BTreeMap<String, Client>;
-
-fn load<T: Read>(history: T) -> Result<Clients, ClientError> {
-    let reader = BufReader::new(history);
-    let events: Vec<Event> = serde_lexpr::from_reader(reader)?;
-    let client_map = from_events(events)?;
-    Ok(client_map)
-}
-
-fn client<'a>(
-    clients: &'a Clients,
-    key: &str,
-) -> Result<&'a Client, ClientError> {
-    clients.get(key).map_or(
-        Err(ClientError::NotFound {
-            key: key.to_string(),
-        }),
-        |c| Ok(c),
-    )
-}
 
 fn apply_event(clients: &mut Clients, event: &Event) {
     match &event.change {
@@ -231,30 +193,32 @@ fn from_events(events: Vec<Event>) -> Result<Clients, ClientError> {
     Ok(clients)
 }
 
-impl fmt::Display for Client {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} @ {}", self.name, self.address)
-    }
-}
-
-#[derive(Clap)]
-pub enum Command {
-    List,
-    Add,
-    Rates { key: String },
-    Invoice { key: String },
+fn client<'a>(
+    clients: &'a Clients,
+    key: &str,
+) -> Result<&'a Client, ClientError> {
+    clients.get(key).map_or(
+        Err(ClientError::NotFound {
+            key: key.to_string(),
+        }),
+        |c| Ok(c),
+    )
 }
 
 pub fn run_cmd<T: Read + Write>(
     cmd: Command,
     history: T,
 ) -> Result<(), ClientError> {
-    let mut clients = load(history)?;
+    let reader = BufReader::new(history);
+    let events: Vec<Event> = serde_lexpr::from_reader(reader)?;
+    let mut clients = from_events(events)?;
+
     let event = match cmd {
         Command::Add => add_client(),
         Command::List => list_clients(&clients),
         Command::Rates { key } => show_client_rates(client(&clients, &key)?),
         Command::Invoice { key } => invoice(client(&clients, &key)?),
+        Command::SetTaxes { key } => set_taxes(client(&clients, &key)?),
     }?;
     event.map(|e| {
         println!("Adding event: {:?}", e);
@@ -299,20 +263,25 @@ fn invoice(client: &Client) -> MaybeEvent {
         key: client.key.clone(),
         effective: period.from,
     })?;
-    let subtotal = rate.amount * period.num_per(&rate.per);
-
-    let invoice = Invoice::new(
-        client.invoices.len() + 1,
-        period.from,
-        period.until,
-        period.num_per(&rate.per),
-        subtotal,
-        rate.clone(),
-    );
+    let taxes = client.taxes_as_of(period.from);
+    let invoice = Invoice::new(client.next_invoice_num(), period, rate, taxes);
 
     println!("Adding invoice:\n\n{}", invoice);
     Ok(input::confirm()?
         .then(|| Event::new_update(&client.key, Update::Invoiced(invoice))))
+}
+
+fn set_taxes(client: &Client) -> MaybeEvent {
+    let (taxes, effective) = input::select_taxes()?;
+
+    println!("Setting taxes for {} to:", client.name);
+    for tax in taxes.iter() {
+        println!("{}", tax);
+    }
+    println!("Effective: {}", effective);
+    Ok(input::confirm()?.then(|| {
+        Event::new_update(&client.key, Update::Taxes(effective, taxes))
+    }))
 }
 
 #[cfg(test)]

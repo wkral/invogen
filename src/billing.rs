@@ -1,9 +1,10 @@
 use std::fmt;
 
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, Local, NaiveDate};
 use chrono_utilities::naive::DateTransitions;
 use serde::{Deserialize, Serialize};
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Period {
     pub from: NaiveDate,
     pub until: NaiveDate,
@@ -26,7 +27,7 @@ impl Period {
         f(self.until) - f(self.from) + 1
     }
 
-    pub fn num_per(&self, unit: &Unit) -> f32 {
+    fn num_units(&self, unit: &Unit) -> f32 {
         match unit {
             Unit::Month => self.num_months(),
             Unit::Week => self.num_weeks(),
@@ -61,6 +62,12 @@ impl Period {
             .count();
         distinct_weeks as f32 * self.working_days() as f32
             / full_period.working_days() as f32
+    }
+}
+
+impl fmt::Display for Period {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} — {}", self.from, self.until)
     }
 }
 
@@ -114,5 +121,110 @@ pub struct Rate {
 impl fmt::Display for Rate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{:.2}/{:?}", self.currency, self.amount, self.per)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct TaxRate {
+    pub name: String,
+    pub percentage: u8,
+}
+
+impl fmt::Display for TaxRate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} @ {}%", self.name, self.percentage)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct InvoiceTotal {
+    currency: Currency,
+    subtotal: f32,
+    taxes: Vec<(TaxRate, f32)>,
+    total: f32,
+}
+
+impl fmt::Display for InvoiceTotal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Subtotal: {}{:.2}", self.currency, self.subtotal)?;
+        for (tax_rate, amount) in self.taxes.iter() {
+            writeln!(f, "{}: {}{:.2}", tax_rate, self.currency, amount)?;
+        }
+
+        write!(f, "\nTotal: {}{:.2}", self.currency, self.total)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Invoice {
+    pub date: NaiveDate,
+    pub number: usize,
+    pub period: Period,
+    pub rate: Rate,
+    pub tax_rates: Vec<TaxRate>,
+    pub paid: bool,
+}
+
+impl Invoice {
+    pub fn new(
+        number: usize,
+        period: Period,
+        rate: &Rate,
+        tax_rates: Vec<TaxRate>,
+    ) -> Self {
+        let date = Local::today().naive_local();
+
+        Self {
+            date,
+            number,
+            period,
+            rate: rate.clone(),
+            tax_rates: tax_rates.clone(),
+            paid: false,
+        }
+    }
+
+    pub fn mark_paid(&mut self) -> bool {
+        if self.paid {
+            return false;
+        }
+        self.paid = true;
+        true
+    }
+
+    pub fn calculate(&self) -> InvoiceTotal {
+        let subtotal = self.rate.amount * self.period.num_units(&self.rate.per);
+        let taxes: Vec<(TaxRate, f32)> = self
+            .tax_rates
+            .iter()
+            .map(|tr| (tr.clone(), tr.percentage as f32 * subtotal / 100.0))
+            .collect();
+        let total = taxes.iter().fold(subtotal, |a, (_, x)| a + x);
+
+        InvoiceTotal {
+            currency: self.rate.currency.clone(),
+            subtotal,
+            taxes,
+            total,
+        }
+    }
+}
+
+impl fmt::Display for Invoice {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Invoice: #{}\n\
+             Period: {}\n\
+             {:.2} {}s @ {}\n\n\
+
+             {}",
+            self.number,
+            self.period,
+            self.period.num_units(&self.rate.per),
+            self.rate.per,
+            self.rate,
+            self.calculate(),
+        )
     }
 }

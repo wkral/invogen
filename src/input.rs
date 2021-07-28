@@ -1,10 +1,11 @@
-use crate::billing::Period;
+use crate::billing::{Period, TaxRate};
 use chrono::{Duration, Local, NaiveDate};
 use chrono_utilities::naive::DateTransitions;
-use inquire::error::InquireError;
-use inquire::{DateSelect, Text};
+use inquire::{error::InquireError, Confirm, CustomType, DateSelect, Text};
 
-pub fn new_client() -> Result<(String, String, String), InquireError> {
+type InputResult<T> = Result<T, InquireError>;
+
+pub fn new_client() -> InputResult<(String, String, String)> {
     let key = Text::new("Client key:").prompt()?.to_lowercase();
     let name = Text::new("Name:").prompt()?;
     let mut count = 0;
@@ -26,9 +27,7 @@ pub fn new_client() -> Result<(String, String, String), InquireError> {
     Ok((key, name, addr_lines.join("\n").trim().to_string()))
 }
 
-pub fn select_period(
-    billed_until: Option<NaiveDate>,
-) -> Result<Period, InquireError> {
+pub fn select_period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
     let today = Local::today().naive_local();
     let cur_eom = today
         .end_of_month()
@@ -56,11 +55,27 @@ pub fn select_period(
     Ok(Period::new(from, until))
 }
 
-pub fn confirm() -> Result<bool, InquireError> {
-    let resp = Text::new("Confirm")
-        .with_default("yes")
-        .prompt()?
-        .to_lowercase();
+pub fn select_taxes() -> InputResult<(Vec<TaxRate>, NaiveDate)> {
+    let mut taxes: Vec<TaxRate> = Vec::new();
 
-    Ok(resp == "yes" || resp == "y")
+    loop {
+        let name = Text::new("Tax name:").prompt()?;
+        let percentage: u8 = CustomType::new("Percentage:")
+            .with_formatter(&|i| format!("{}%", i))
+            .with_error_message("Please type a valid number")
+            .prompt()?;
+
+        taxes.push(TaxRate { name, percentage });
+
+        if !Confirm::new("Add another").with_default(false).prompt()? {
+            break;
+        }
+    }
+
+    let effective = DateSelect::new("Effective:").prompt()?;
+    Ok((taxes, effective))
+}
+
+pub fn confirm() -> InputResult<bool> {
+    Confirm::new("Confirm").with_default(true).prompt()
 }
