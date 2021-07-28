@@ -11,14 +11,27 @@ use std::str::FromStr;
 type InputResult<T> = Result<T, InquireError>;
 
 pub fn client() -> InputResult<(String, String, String)> {
-    let key = Text::new("Client key:").prompt()?.to_lowercase();
-    let name = Text::new("Name:").prompt()?;
+    let key = Text::new("Client key:")
+        .with_help_message("This value cannot be changed once set")
+        .prompt()?
+        .to_lowercase();
+    let name = name()?;
+    let address = address()?;
+
+    Ok((key, name, address))
+}
+
+pub fn name() -> InputResult<String> {
+    Text::new("Name:").prompt()
+}
+
+pub fn address() -> InputResult<String> {
     let mut count = 0;
     let mut addr_lines: Vec<String> = Vec::new();
     loop {
         count += 1;
 
-        let line = Text::new(&format!("Address Line {}:", count))
+        let line = Text::new(&format!("Address line {}:", count))
             .with_help_message("Hit <enter> on an empty line to stop input")
             .prompt()?;
         let should_break = line == "";
@@ -28,8 +41,7 @@ pub fn client() -> InputResult<(String, String, String)> {
             break;
         }
     }
-
-    Ok((key, name, addr_lines.join("\n").trim().to_string()))
+    Ok(addr_lines.join("\n").trim().to_string())
 }
 
 pub fn period(billed_until: Option<NaiveDate>) -> InputResult<Period> {

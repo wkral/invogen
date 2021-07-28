@@ -35,6 +35,7 @@ impl Client {
     fn update(&mut self, update: &Update) -> Result<(), ClientError> {
         match update {
             Update::Address(addr) => self.address = addr.clone(),
+            Update::Name(name) => self.name = name.clone(),
             Update::Rate(effective, rate) => {
                 self.rates.insert(effective.clone(), rate.clone());
             }
@@ -99,6 +100,7 @@ impl Client {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 enum Update {
     Address(String),
+    Name(String),
     Rate(NaiveDate, Rate),
     Invoiced(Invoice),
     Paid(usize),
@@ -168,6 +170,16 @@ pub enum Command {
         #[clap(about = "key name to identify the client")]
         key: String,
     },
+    #[clap(about = "Change a client's address")]
+    ChangeAddress {
+        #[clap(about = "key name to identify the client")]
+        key: String,
+    },
+    #[clap(about = "Change a client's name")]
+    ChangeName {
+        #[clap(about = "key name to identify the client")]
+        key: String,
+    },
 }
 
 type Clients = BTreeMap<String, Client>;
@@ -226,6 +238,10 @@ pub fn run_cmd<T: Read + Write>(
         Command::Invoice { key } => invoice(client(&clients, &key)?),
         Command::SetTaxes { key } => set_taxes(client(&clients, &key)?),
         Command::SetRate { key } => set_rate(client(&clients, &key)?),
+        Command::ChangeAddress { key } => {
+            change_address(client(&clients, &key)?)
+        }
+        Command::ChangeName { key } => change_name(client(&clients, &key)?),
     }?;
     event.map(|e| {
         println!("Adding event: {:?}", e);
@@ -296,9 +312,26 @@ fn set_rate(client: &Client) -> MaybeEvent {
 
     println!("Setting billing rate for {} to: {}", client.name, rate);
     println!("Effective: {}", effective);
-    Ok(input::confirm()?.then(|| {
-        Event::new_update(&client.key, Update::Rate(effective, rate))
-    }))
+    Ok(input::confirm()?
+        .then(|| Event::new_update(&client.key, Update::Rate(effective, rate))))
+}
+
+fn change_address(client: &Client) -> MaybeEvent {
+    let address = input::address()?;
+
+    println!("Changing address for {} to: \n\n{}", client.name, address);
+    Ok(input::confirm()?
+        .then(|| Event::new_update(&client.key, Update::Address(address))))
+}
+
+fn change_name(client: &Client) -> MaybeEvent {
+    let name = input::name()?;
+    println!(
+        "Changing client {} ({}) to: \n\n{}",
+        client.name, client.key, name
+    );
+    Ok(input::confirm()?
+        .then(|| Event::new_update(&client.key, Update::Name(name))))
 }
 
 #[cfg(test)]
