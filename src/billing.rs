@@ -1,7 +1,9 @@
 use std::fmt;
+use std::ops::{Add, Mul};
 
 use chrono::{Datelike, Local, NaiveDate};
 use chrono_utilities::naive::DateTransitions;
+use rust_decimal::{Decimal, RoundingStrategy};
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString, EnumVariantNames};
 
@@ -16,37 +18,39 @@ impl Period {
         Self { from, until }
     }
 
-    fn working_days(&self) -> u32 {
-        self.from
-            .iter_days()
-            .take_while(|d| d <= &self.until)
-            .filter(|d| d.weekday().num_days_from_monday() < 5)
-            .count() as u32
+    fn working_days(&self) -> Decimal {
+        Decimal::from(
+            self.from
+                .iter_days()
+                .take_while(|d| d <= &self.until)
+                .filter(|d| d.weekday().num_days_from_monday() < 5)
+                .count(),
+        )
     }
 
-    fn count_distinct<F: Fn(NaiveDate) -> i32>(&self, f: F) -> i32 {
-        f(self.until) - f(self.from) + 1
+    fn count_distinct<F: Fn(NaiveDate) -> u32>(&self, f: F) -> Decimal {
+        Decimal::from(f(self.until) - f(self.from) + 1)
     }
 
-    fn num_units(&self, unit: &Unit) -> f32 {
+    fn num_units(&self, unit: &Unit) -> Decimal {
         match unit {
             Unit::Month => self.num_months(),
             Unit::Week => self.num_weeks(),
-            Unit::Day => self.working_days() as f32,
+            Unit::Day => self.working_days(),
         }
     }
 
-    fn num_months(&self) -> f32 {
+    fn num_months(&self) -> Decimal {
         let full_period = Self::new(
             self.from.start_of_month().expect("Error in chorno-utils"),
             self.until.end_of_month().expect("Error in chorno-utils"),
         );
-        ((self.until.year() - self.from.year()) as f32 * 12.0)
-            + (self.working_days() as f32 / full_period.working_days() as f32
-                * self.count_distinct(|d| d.month() as i32) as f32)
+        Decimal::from((self.until.year() - self.from.year()) * 12)
+            + (self.working_days() / full_period.working_days()
+                * self.count_distinct(|d| d.month()))
     }
 
-    fn num_weeks(&self) -> f32 {
+    fn num_weeks(&self) -> Decimal {
         let full_period = Self::new(
             self.from
                 .start_of_iso8601_week()
@@ -55,13 +59,13 @@ impl Period {
                 .end_of_iso8601_week()
                 .expect("Error in chrono utils"),
         );
-        let distinct_weeks = self
-            .from
-            .iter_weeks()
-            .take_while(|d| d <= &self.until)
-            .count();
-        distinct_weeks as f32 * self.working_days() as f32
-            / full_period.working_days() as f32
+        let distinct_weeks = Decimal::from(
+            self.from
+                .iter_weeks()
+                .take_while(|d| d <= &self.until)
+                .count(),
+        );
+        distinct_weeks * self.working_days() / full_period.working_days()
     }
 }
 
@@ -96,6 +100,7 @@ pub enum Unit {
     Debug,
     PartialEq,
     Clone,
+    Copy,
 )]
 pub enum Currency {
     #[strum(serialize = "CAD $")]
@@ -106,47 +111,85 @@ pub enum Currency {
     EUR,
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+pub struct Money(Currency, Decimal);
+
+impl Money {
+    pub fn new(currency: Currency, amount: Decimal) -> Self {
+        Self(currency, amount)
+    }
+}
+
+impl Add<Money> for Money {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self(self.0.clone(), self.1 + other.1)
+    }
+}
+
+impl Mul<Decimal> for Money {
+    type Output = Self;
+
+    fn mul(self, other: Decimal) -> Self {
+        Self(
+            self.0.clone(),
+            (self.1 * other).round_dp_with_strategy(
+                2,
+                RoundingStrategy::MidpointNearestEven,
+            ),
+        )
+    }
+}
+
+impl fmt::Display for Money {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}{}", self.0, self.1)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Rate {
-    pub amount: f32,
-    pub currency: Currency,
+    pub amount: Money,
     pub per: Unit,
 }
 
 impl fmt::Display for Rate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{:.2}/{:?}", self.currency, self.amount, self.per)
+        write!(f, "{}/{}", self.amount, self.per)
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct TaxRate {
-    pub name: String,
-    pub percentage: u8,
+pub struct TaxRate (String, Decimal);
+
+impl TaxRate {
+    pub fn new(name: String, percentage: i64) -> Self {
+        Self ( name, Decimal::new(percentage, 2))
+    }
 }
 
 impl fmt::Display for TaxRate {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} @ {}%", self.name, self.percentage)
+        write!(f, "{} @ {}%", self.0, self.1 * Decimal::from(100))
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct InvoiceTotal {
-    currency: Currency,
-    subtotal: f32,
-    taxes: Vec<(TaxRate, f32)>,
-    total: f32,
+    subtotal: Money,
+    taxes: Vec<(TaxRate, Money)>,
+    total: Money,
 }
 
 impl fmt::Display for InvoiceTotal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "Subtotal: {}{:.2}", self.currency, self.subtotal)?;
+        writeln!(f, "Subtotal: {}", self.subtotal)?;
         for (tax_rate, amount) in self.taxes.iter() {
-            writeln!(f, "{}: {}{:.2}", tax_rate, self.currency, amount)?;
+            writeln!(f, "{}: {}", tax_rate, amount)?;
         }
 
-        write!(f, "\nTotal: {}{:.2}", self.currency, self.total)
+        write!(f, "\nTotal: {}", self.total)
     }
 }
 
@@ -189,15 +232,14 @@ impl Invoice {
 
     pub fn calculate(&self) -> InvoiceTotal {
         let subtotal = self.rate.amount * self.period.num_units(&self.rate.per);
-        let taxes: Vec<(TaxRate, f32)> = self
+        let taxes: Vec<(TaxRate, Money)> = self
             .tax_rates
             .iter()
-            .map(|tr| (tr.clone(), tr.percentage as f32 * subtotal / 100.0))
+            .map(|tr| (tr.clone(), subtotal * tr.1))
             .collect();
-        let total = taxes.iter().fold(subtotal, |a, (_, x)| a + x);
+        let total = taxes.iter().fold(subtotal, |a, (_, x)| a + *x);
 
         InvoiceTotal {
-            currency: self.rate.currency.clone(),
             subtotal,
             taxes,
             total,

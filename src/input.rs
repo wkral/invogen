@@ -1,9 +1,10 @@
-use crate::billing::{Currency, Period, Rate, TaxRate, Unit};
+use crate::billing::{Currency, Money, Period, Rate, TaxRate, Unit};
 use chrono::{Duration, Local, NaiveDate};
 use chrono_utilities::naive::DateTransitions;
 use inquire::{
     error::InquireError, Confirm, CustomType, DateSelect, Select, Text,
 };
+use rust_decimal::Decimal;
 use strum::VariantNames;
 
 use std::str::FromStr;
@@ -73,7 +74,7 @@ pub fn period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
 }
 
 pub fn rate() -> InputResult<(Rate, NaiveDate)> {
-    let amount: f32 = CustomType::new("Amount:")
+    let amount: Decimal = CustomType::new("Amount:")
         .with_formatter(&|i| format!("${:.2}", i))
         .with_error_message("Please type a valid number")
         .prompt()?;
@@ -89,9 +90,11 @@ pub fn rate() -> InputResult<(Rate, NaiveDate)> {
 
     let effective = DateSelect::new("Effective:").prompt()?;
     let rate = Rate {
-        currency: Currency::from_str(&currency)
-            .expect("only selecting from variants"),
-        amount: amount,
+        amount: Money::new(
+            Currency::from_str(&currency)
+                .expect("only selecting from variants"),
+            amount,
+        ),
         per: Unit::from_str(&unit).expect("only selecting from variants"),
     };
     Ok((rate, effective))
@@ -102,12 +105,12 @@ pub fn taxes() -> InputResult<(Vec<TaxRate>, NaiveDate)> {
 
     loop {
         let name = Text::new("Tax name:").prompt()?;
-        let percentage: u8 = CustomType::new("Percentage:")
+        let percentage: i64 = CustomType::new("Percentage:")
             .with_formatter(&|i| format!("{}%", i))
             .with_error_message("Please type a valid number")
             .prompt()?;
 
-        taxes.push(TaxRate { name, percentage });
+        taxes.push(TaxRate::new(name, percentage));
 
         if !Confirm::new("Add another").with_default(false).prompt()? {
             break;

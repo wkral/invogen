@@ -7,17 +7,18 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = { version = "~1.0", features = ["derive"] }
-lexpr = "0.2.6"
-serde-lexpr = "0.1.2"
 clap = "3.0.0-beta.2"
 const_format = "0.2.14"
 chrono = { version = "0.4.19", features = ["serde"] }
 chrono-utilities = "0.0.0-alpha1"
 inquire = { version = "0.0.6", features = ["date"] }
-thiserror = "1.0"
+rust_decimal = { version = "1.15.0", features = ["serde-float"] }
+lexpr = "0.2.6"
+serde = { version = "~1.0", features = ["derive"] }
+serde-lexpr = "0.1.2"
 strum = "0.21"
 strum_macros = "0.21"
+thiserror = "1.0"
 
 [dev-dependencies]
 proptest = "1.0.0"

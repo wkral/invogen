@@ -117,26 +117,14 @@ enum Change {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-struct Event {
-    key: String,
-    timestamp: DateTime<Utc>,
-    change: Change,
-}
+struct Event(String, DateTime<Utc>, Change);
 
 impl Event {
     pub fn new(key: &str, change: Change) -> Self {
-        Self {
-            key: key.to_string(),
-            timestamp: Utc::now(),
-            change: change,
-        }
+        Self(key.to_string(), Utc::now(), change)
     }
     pub fn new_update(key: &str, update: Update) -> Self {
-        Self {
-            key: key.to_string(),
-            timestamp: Utc::now(),
-            change: Change::Updated(update),
-        }
+        Self(key.to_string(), Utc::now(), Change::Updated(update))
     }
 }
 
@@ -187,20 +175,16 @@ pub enum Command {
 type Clients = BTreeMap<String, Client>;
 
 fn apply_event(clients: &mut Clients, event: &Event) {
-    match &event.change {
+    let Event(ref key, _, change) = event;
+    match change {
         Change::Added { name, address } => {
-            clients.insert(
-                event.key.clone(),
-                Client::new(&event.key, name, address),
-            );
+            clients.insert(key.clone(), Client::new(key, name, address));
         }
         Change::Updated(update) => {
-            clients
-                .get_mut(&event.key)
-                .map(|client| client.update(update));
+            clients.get_mut(key).map(|client| client.update(update));
         }
         Change::Removed => {
-            clients.remove(&event.key);
+            clients.remove(key);
         }
     };
 }
@@ -229,7 +213,6 @@ pub fn run_cmd_with_path(
     cmd: Command,
     history_path: &PathBuf,
 ) -> Result<(), ClientError> {
-
     let mut events: Vec<Event> = if history_path.as_path().exists() {
         let history_file = File::open(history_path)?;
         let reader = BufReader::new(history_file);
@@ -362,29 +345,28 @@ fn change_name(client: &Client) -> MaybeEvent {
 mod tests {
 
     use super::*;
-    use crate::billing::{Currency, Unit};
+    use crate::billing::{Currency, Money, Unit};
     use chrono::TimeZone;
     use const_format::formatcp;
+    use rust_decimal::Decimal;
     use serde_lexpr::{from_str, to_string, Error};
-    use std::io::Cursor;
 
     fn billing_rate() -> Rate {
         Rate {
-            amount: 1000.0,
-            currency: Currency::USD,
+            amount: Money::new(Currency::USD, Decimal::from(1000)),
             per: Unit::Month,
         }
     }
 
-    const RATE_RAW: &str = "(amount . 1000.0) \
-        (currency . USD) \
-        (per . Month)";
+    const RATE_RAW: &str = "(amount . #(USD 1000.0)) \
+         (per . Month)";
 
     const CLIENT_RAW: &str = "(key . \"innotech\") \
          (name . \"Innotech\") \
          (address . \"Some Place\") \
          (rates) \
-         (invoices)";
+         (invoices) \
+         (taxes)";
 
     const CLIENT_STR: &str = formatcp!("({})", CLIENT_RAW);
 
@@ -404,9 +386,8 @@ mod tests {
     }
 
     const CLIENT_ADD_STR: &str = formatcp!(
-        "((key . \"innotech\") \
-          (timestamp . \"2021-04-15T10:30:00Z\") \
-          (change Added (name . \"Innotech\") (address . \"Some Place\")))",
+        "#(\"innotech\" \"2021-04-15T10:30:00Z\" \
+           (Added (name . \"Innotech\") (address . \"Some Place\")))",
     );
 
     #[test]
@@ -415,20 +396,19 @@ mod tests {
             name: "Innotech".to_string(),
             address: "Some Place".to_string(),
         };
-        let event = Event {
-            key: "innotech".to_string(),
-            change: change,
-            timestamp: Utc.ymd(2021, 04, 15).and_hms(10, 30, 0),
-        };
+        let event = Event(
+            "innotech".to_string(),
+            Utc.ymd(2021, 04, 15).and_hms(10, 30, 0),
+            change,
+        );
         let sexpr = to_string(&event)?;
         assert_eq!(sexpr, CLIENT_ADD_STR);
         Ok(())
     }
 
     const RATE_UPDATE_STR: &str = formatcp!(
-        "((key . \"innotech\") \
-          (timestamp . \"2021-04-16T09:30:00Z\") \
-          (change Updated Rate \"2021-04-15\" ({})))",
+        "#(\"innotech\" \"2021-04-16T09:30:00Z\" \
+           (Updated Rate \"2021-04-15\" ({})))",
         RATE_RAW
     );
 
@@ -437,11 +417,11 @@ mod tests {
         let update =
             Update::Rate(NaiveDate::from_ymd(2021, 04, 15), billing_rate());
         let change = Change::Updated(update);
-        let event = Event {
-            key: "innotech".to_string(),
-            change: change,
-            timestamp: Utc.ymd(2021, 04, 16).and_hms(9, 30, 0),
-        };
+        let event = Event(
+            "innotech".to_string(),
+            Utc.ymd(2021, 04, 16).and_hms(9, 30, 0),
+            change,
+        );
         let sexpr = to_string(&event)?;
         assert_eq!(sexpr, RATE_UPDATE_STR);
         Ok(())
@@ -453,7 +433,7 @@ mod tests {
     #[test]
     fn client_from_events() -> Result<(), Error> {
         let events: Vec<Event> = from_str(EVENTS_STR)?;
-        let client_map = from_events(events).unwrap();
+        let client_map = from_events(&events).unwrap();
 
         let client = client_map.get("innotech").unwrap();
         let query_date = NaiveDate::from_ymd(2021, 04, 17);
@@ -466,7 +446,7 @@ mod tests {
     #[test]
     fn list() -> Result<(), ClientError> {
         let history = from_str(EVENTS_STR)?;
-        run_cmd(Command::List, history)?;
+        run_cmd(Command::List, &history)?;
         Ok(())
     }
 }
