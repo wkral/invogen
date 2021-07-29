@@ -44,28 +44,24 @@ mod clients;
 mod error;
 mod input;
 
-use clap::Clap;
-use std::fs::File;
-use crate::error::ClientError;
+use clap::{Clap, ValueHint};
+use std::path::PathBuf;
 
 #[derive(Clap)]
 struct Opts {
+    #[clap(short, long, default_value="client.history",
+        value_hint=ValueHint::FilePath)]
+    file: PathBuf,
+
     #[clap(subcommand)]
     subcommand: clients::Command,
-}
-
-fn run(opts: Opts) -> Result<(), ClientError> {
-
-    let history_file = File::open("history")?;
-
-    clients::run_cmd(opts.subcommand, history_file)?;
-    Ok(())
 }
 
 fn main() {
     let opts = Opts::parse();
 
-    if let Err(error) = run(opts) {
+    if let Err(error) = clients::run_cmd_with_path(opts.subcommand, &opts.file)
+    {
         eprintln!("{}", error);
     }
 }

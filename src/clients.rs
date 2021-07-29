@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::{BufReader, Read, Write};
+use std::fs::{self, File};
+use std::io::BufReader;
+use std::path::PathBuf;
 
 use crate::billing::{Invoice, Rate, TaxRate};
 use crate::error::ClientError;
@@ -203,7 +205,7 @@ fn apply_event(clients: &mut Clients, event: &Event) {
     };
 }
 
-fn from_events(events: Vec<Event>) -> Result<Clients, ClientError> {
+fn from_events(events: &Vec<Event>) -> Result<Clients, ClientError> {
     let mut clients = Clients::new();
     for event in events.iter() {
         apply_event(&mut clients, event);
@@ -223,12 +225,34 @@ fn client<'a>(
     )
 }
 
-pub fn run_cmd<T: Read + Write>(
+pub fn run_cmd_with_path(
     cmd: Command,
-    history: T,
+    history_path: &PathBuf,
 ) -> Result<(), ClientError> {
-    let reader = BufReader::new(history);
-    let events: Vec<Event> = serde_lexpr::from_reader(reader)?;
+
+    let mut events: Vec<Event> = if history_path.as_path().exists() {
+        let history_file = File::open(history_path)?;
+        let reader = BufReader::new(history_file);
+        serde_lexpr::from_reader(reader)?
+    } else {
+        Vec::new()
+    };
+
+    if let Some(event) = run_cmd(cmd, &events)? {
+        events.push(event);
+        let updated_path = history_path.with_extension("updated");
+        let f = File::create(&updated_path)?;
+
+        serde_lexpr::to_writer(f, &events)?;
+        fs::rename(updated_path, history_path)?;
+    }
+    Ok(())
+}
+
+fn run_cmd(
+    cmd: Command,
+    events: &Vec<Event>,
+) -> Result<Option<Event>, ClientError> {
     let mut clients = from_events(events)?;
 
     let event = match cmd {
@@ -243,11 +267,11 @@ pub fn run_cmd<T: Read + Write>(
         }
         Command::ChangeName { key } => change_name(client(&clients, &key)?),
     }?;
-    event.map(|e| {
+    Ok(event.map(|e| {
         println!("Adding event: {:?}", e);
-        apply_event(&mut clients, &e)
-    });
-    Ok(())
+        apply_event(&mut clients, &e);
+        e
+    }))
 }
 
 type MaybeEvent = Result<Option<Event>, ClientError>;
@@ -441,7 +465,7 @@ mod tests {
 
     #[test]
     fn list() -> Result<(), ClientError> {
-        let history = Cursor::new(EVENTS_STR.as_bytes().to_owned());
+        let history = from_str(EVENTS_STR)?;
         run_cmd(Command::List, history)?;
         Ok(())
     }
