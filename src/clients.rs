@@ -130,7 +130,7 @@ impl Event {
 
 impl fmt::Display for Client {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} @ {}", self.name, self.address)
+        write!(f, "{}:\n\n{}\n{}\n", self.key, self.name, self.address)
     }
 }
 
@@ -267,8 +267,8 @@ fn add_client() -> MaybeEvent {
 }
 
 fn list_clients(clients: &Clients) -> MaybeEvent {
-    for (key, client) in clients.iter() {
-        println!("{}: {}", key, client);
+    for client in clients.values() {
+        println!("{}", client);
     }
     Ok(None)
 }
