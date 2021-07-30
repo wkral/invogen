@@ -2,7 +2,7 @@ use chrono::{DateTime, Local, NaiveDate, Utc};
 use clap::Clap;
 use serde::{Deserialize, Serialize};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs::{self, File};
 use std::io::BufReader;
@@ -20,6 +20,8 @@ pub struct Client {
     rates: BTreeMap<NaiveDate, Rate>,
     invoices: BTreeMap<usize, Invoice>,
     taxes: BTreeMap<NaiveDate, Vec<TaxRate>>,
+    #[serde(skip_serializing)]
+    past_services: BTreeSet<String>,
 }
 
 impl Client {
@@ -31,6 +33,7 @@ impl Client {
             rates: BTreeMap::new(),
             invoices: BTreeMap::new(),
             taxes: BTreeMap::new(),
+            past_services: BTreeSet::new(),
         }
     }
 
@@ -49,15 +52,17 @@ impl Client {
                     });
                 }
                 self.invoices.insert(invoice.number, invoice.clone());
+                self.past_services.insert(invoice.service.clone());
             }
-            Update::Paid(num) => {
+            Update::Paid(num, when) => {
                 if let Some(invoice) = self.invoices.get_mut(num) {
-                    if !invoice.mark_paid() {
+                    if invoice.paid.is_some() {
                         return Err(ClientError::AlreadyPaid {
                             client: self.key.clone(),
                             number: num.clone(),
                         });
                     }
+                    invoice.paid = Some(*when)
                 } else {
                     return Err(ClientError::PaidOutOfSequence {
                         client: self.key.clone(),
@@ -105,7 +110,7 @@ enum Update {
     Name(String),
     Rate(NaiveDate, Rate),
     Invoiced(Invoice),
-    Paid(usize),
+    Paid(usize, NaiveDate),
     Taxes(NaiveDate, Vec<TaxRate>),
 }
 
@@ -251,7 +256,6 @@ fn run_cmd(
         Command::ChangeName { key } => change_name(client(&clients, &key)?),
     }?;
     Ok(event.map(|e| {
-        println!("Adding event: {:?}", e);
         apply_event(&mut clients, &e);
         e
     }))
@@ -289,12 +293,14 @@ fn show_client_rates(client: &Client) -> MaybeEvent {
 
 fn invoice(client: &Client) -> MaybeEvent {
     let period = input::period(client.billed_until())?;
+    let service = input::service_description(&client.past_services)?;
     let rate = client.rate_as_of(period.from).ok_or(ClientError::NoRate {
         key: client.key.clone(),
         effective: period.from,
     })?;
     let taxes = client.taxes_as_of(period.from);
-    let invoice = Invoice::new(client.next_invoice_num(), period, rate, taxes);
+    let invoice =
+        Invoice::new(client.next_invoice_num(), period, service, rate, taxes);
 
     println!("Adding invoice:\n\n{}", invoice);
     Ok(input::confirm()?

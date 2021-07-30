@@ -161,11 +161,11 @@ impl fmt::Display for Rate {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct TaxRate (String, Decimal);
+pub struct TaxRate(String, Decimal);
 
 impl TaxRate {
     pub fn new(name: String, percentage: i64) -> Self {
-        Self ( name, Decimal::new(percentage, 2))
+        Self(name, Decimal::new(percentage, 2))
     }
 }
 
@@ -198,15 +198,17 @@ pub struct Invoice {
     pub date: NaiveDate,
     pub number: usize,
     pub period: Period,
+    pub service: String,
     pub rate: Rate,
     pub tax_rates: Vec<TaxRate>,
-    pub paid: bool,
+    pub paid: Option<NaiveDate>,
 }
 
 impl Invoice {
     pub fn new(
         number: usize,
         period: Period,
+        service: String,
         rate: &Rate,
         tax_rates: Vec<TaxRate>,
     ) -> Self {
@@ -216,18 +218,11 @@ impl Invoice {
             date,
             number,
             period,
+            service,
             rate: rate.clone(),
             tax_rates: tax_rates.clone(),
-            paid: false,
+            paid: None,
         }
-    }
-
-    pub fn mark_paid(&mut self) -> bool {
-        if self.paid {
-            return false;
-        }
-        self.paid = true;
-        true
     }
 
     pub fn calculate(&self) -> InvoiceTotal {
@@ -253,11 +248,13 @@ impl fmt::Display for Invoice {
             f,
             "Invoice: #{}\n\
              Period: {}\n\
+             For: {}\n\
              {:.2} {}s @ {}\n\n\
 
              {}",
             self.number,
             self.period,
+            self.service,
             self.period.num_units(&self.rate.per),
             self.rate.per,
             self.rate,

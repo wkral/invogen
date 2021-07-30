@@ -7,6 +7,7 @@ use inquire::{
 use rust_decimal::Decimal;
 use strum::VariantNames;
 
+use std::collections::BTreeSet;
 use std::str::FromStr;
 
 type InputResult<T> = Result<T, InquireError>;
@@ -71,6 +72,22 @@ pub fn period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
         .prompt()?;
 
     Ok(Period::new(from, until))
+}
+
+pub fn service_description(
+    past_services: &BTreeSet<String>,
+) -> InputResult<String> {
+    Text::new("Provided service:")
+        .with_suggester(&|val: &str| {
+            past_services
+                .iter()
+                .filter(|service| {
+                    service.to_lowercase().contains(&val.to_lowercase())
+                })
+                .map(|s| s.to_string())
+                .collect()
+        })
+        .prompt()
 }
 
 pub fn rate() -> InputResult<(Rate, NaiveDate)> {
