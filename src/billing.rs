@@ -177,9 +177,9 @@ impl fmt::Display for TaxRate {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct InvoiceTotal {
-    subtotal: Money,
-    taxes: Vec<(TaxRate, Money)>,
-    total: Money,
+    pub subtotal: Money,
+    pub taxes: Vec<(TaxRate, Money)>,
+    pub total: Money,
 }
 
 impl fmt::Display for InvoiceTotal {

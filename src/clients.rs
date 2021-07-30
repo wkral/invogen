@@ -142,9 +142,9 @@ impl fmt::Display for Client {
 #[derive(Clap)]
 pub enum Command {
     #[clap(about = "List all clients")]
-    List,
+    ListClients,
     #[clap(about = "Add a new client")]
-    Add,
+    AddClient,
     #[clap(about = "Show billing and tax rates for a client")]
     Rates {
         #[clap(about = "key name to identify the client")]
@@ -172,6 +172,11 @@ pub enum Command {
     },
     #[clap(about = "Change a client's name")]
     ChangeName {
+        #[clap(about = "key name to identify the client")]
+        key: String,
+    },
+    #[clap(about = "List all invoices for a client")]
+    ListInvoices {
         #[clap(about = "key name to identify the client")]
         key: String,
     },
@@ -244,8 +249,8 @@ fn run_cmd(
     let mut clients = from_events(events)?;
 
     let event = match cmd {
-        Command::Add => add_client(),
-        Command::List => list_clients(&clients),
+        Command::AddClient => add_client(),
+        Command::ListClients => list_clients(&clients),
         Command::Rates { key } => show_client_rates(client(&clients, &key)?),
         Command::Invoice { key } => invoice(client(&clients, &key)?),
         Command::SetTaxes { key } => set_taxes(client(&clients, &key)?),
@@ -254,6 +259,7 @@ fn run_cmd(
             change_address(client(&clients, &key)?)
         }
         Command::ChangeName { key } => change_name(client(&clients, &key)?),
+        Command::ListInvoices { key } => list_invoices(client(&clients, &key)?),
     }?;
     Ok(event.map(|e| {
         apply_event(&mut clients, &e);
@@ -345,6 +351,22 @@ fn change_name(client: &Client) -> MaybeEvent {
     );
     Ok(input::confirm()?
         .then(|| Event::new_update(&client.key, Update::Name(name))))
+}
+
+fn list_invoices(client: &Client) -> MaybeEvent {
+    for i in client.invoices.values() {
+        let paid = if let Some(when) = i.paid {
+            format!("Paid {}", when)
+        } else {
+            "Unpaid".to_string()
+        };
+        let total = i.calculate();
+        println!(
+            "#{} {}, {}, {} ({})",
+            i.number, i.period, i.service, total.total, paid
+        )
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -452,7 +474,7 @@ mod tests {
     #[test]
     fn list() -> Result<(), ClientError> {
         let history = from_str(EVENTS_STR)?;
-        run_cmd(Command::List, &history)?;
+        run_cmd(Command::ListClients, &history)?;
         Ok(())
     }
 }
