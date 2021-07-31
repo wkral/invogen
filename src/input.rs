@@ -74,7 +74,7 @@ pub fn period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
     Ok(Period::new(from, until))
 }
 
-pub fn service_description(
+pub fn service_description<'a>(
     past_services: &BTreeSet<String>,
 ) -> InputResult<String> {
     Text::new("Provided service:")

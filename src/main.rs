@@ -41,8 +41,8 @@
 
 mod billing;
 mod clients;
-mod error;
 mod input;
+mod run;
 
 use clap::{Clap, ValueHint};
 use std::path::PathBuf;
@@ -54,13 +54,13 @@ struct Opts {
     file: PathBuf,
 
     #[clap(subcommand)]
-    subcommand: clients::Command,
+    subcommand: run::Command,
 }
 
 fn main() {
     let opts = Opts::parse();
 
-    if let Err(error) = clients::run_cmd_with_path(opts.subcommand, &opts.file)
+    if let Err(error) = run::run_cmd_with_path(opts.subcommand, &opts.file)
     {
         eprintln!("{}", error);
     }
