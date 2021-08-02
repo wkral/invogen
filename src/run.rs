@@ -2,12 +2,13 @@ use std::fs::{self, File};
 use std::io::{self, BufReader};
 use std::path::PathBuf;
 
-use crate::billing::Invoice;
+use crate::billing::{Invoice, TaxRate};
 use crate::clients::{Client, ClientError, Clients, Update};
 use crate::input;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use clap::Clap;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -17,7 +18,7 @@ use thiserror::Error;
  * add-client
  * client <key> {
  *  | invoice
- *  | show (all | invoices | rates | taxes)
+ *  | show ( invoices | rates | taxes)
  *  | set (rate | taxes | address | name)
  *  | remove )
  * invoice <client-key> <num> (show
@@ -59,7 +60,7 @@ pub enum ClientSubCmd {
     #[clap(about = "Show a client or specific details")]
     Show {
         #[clap(subcommand)]
-        property: ClientShowSubCmd,
+        property: Option<ClientShowSubCmd>,
     },
     #[clap(about = "Set or change aspects of a client")]
     Set {
@@ -184,8 +185,9 @@ fn run_cmd(cmd: Command, events: &Vec<Event>) -> MaybeEvent {
             num,
             subcommand,
         } => {
-            let invoice = clients.get(&client_key)?.invoice(&num)?;
-            run_invoice_cmd(invoice, subcommand)
+            let client = clients.get(&client_key)?;
+            let invoice = client.invoice(&num)?;
+            run_invoice_cmd(invoice, client, subcommand)
         }
     }? {
         apply_event(&mut clients, &event)?;
@@ -199,8 +201,11 @@ fn run_client_cmd(client: &Client, cmd: ClientSubCmd) -> MaybeEvent {
     match cmd {
         ClientSubCmd::Invoice => invoice(client),
         ClientSubCmd::Show { property } => match property {
-            ClientShowSubCmd::Rates => show_client_rates(client),
-            ClientShowSubCmd::Invoices => list_invoices(client),
+            None => show_client(client),
+            Some(prop) => match prop {
+                ClientShowSubCmd::Rates => show_client_rates(client),
+                ClientShowSubCmd::Invoices => list_invoices(client),
+            },
         },
         ClientSubCmd::Set { property } => match property {
             ClientSetSubCmd::Taxes => set_taxes(client),
@@ -212,11 +217,15 @@ fn run_client_cmd(client: &Client, cmd: ClientSubCmd) -> MaybeEvent {
     }
 }
 
-fn run_invoice_cmd(invoice: &Invoice, cmd: InvoiceSubCmd) -> MaybeEvent {
+fn run_invoice_cmd(
+    invoice: &Invoice,
+    client: &Client,
+    cmd: InvoiceSubCmd,
+) -> MaybeEvent {
     match cmd {
-        InvoiceSubCmd::Show => Ok(None),     // TODO impl
-        InvoiceSubCmd::Paid => Ok(None),     // TODO impl
-        InvoiceSubCmd::Posting => Ok(None),  // TODO impl
+        InvoiceSubCmd::Show => show_invoice(invoice),
+        InvoiceSubCmd::Paid => mark_paid(invoice, client),
+        InvoiceSubCmd::Posting => invoice_posting(invoice, client),
         InvoiceSubCmd::Markdown => Ok(None), // TODO impl
     }
 }
@@ -230,23 +239,42 @@ fn add_client() -> MaybeEvent {
 
 fn list_clients(clients: &Clients) -> MaybeEvent {
     for client in clients.iter() {
-        println!("{}", client);
+        println!("{}", client); }
+    Ok(None)
+}
+
+fn show_client(client: &Client) -> MaybeEvent {
+    println!("{}", client);
+
+    show_current_rate(client);
+    if let Some(date) = client.billed_until() {
+        println!("Billed Until: {}", date);
     }
+
+    print!("Outstanding invoices:");
+    for num in client.unpaid_invoices() {
+        print!(" #{}", num);
+    }
+
     Ok(None)
 }
 
 fn show_client_rates(client: &Client) -> MaybeEvent {
-    if let Some(current) = client.current_rate() {
-        println!("Current Rate: {}\n", current);
-    } else {
-        println!("No current rate for client: {}", client.name);
-    }
+    show_current_rate(client);
 
     println!("Historical Rates:\n");
     for (effective, rate) in client.rates() {
         println!("{} effective {}", rate, effective);
     }
     Ok(None)
+}
+
+fn show_current_rate(client: &Client) {
+    if let Some(current) = client.current_rate() {
+        println!("Current Rate: {}", current);
+    } else {
+        println!("No current rate");
+    }
 }
 
 fn invoice(client: &Client) -> MaybeEvent {
@@ -318,6 +346,96 @@ fn list_invoices(client: &Client) -> MaybeEvent {
         )
     }
     Ok(None)
+}
+
+fn show_invoice(invoice: &Invoice) -> MaybeEvent {
+    println!("{}", invoice);
+    Ok(None)
+}
+
+fn mark_paid(invoice: &Invoice, client: &Client) -> MaybeEvent {
+    let when = input::paid_date(invoice.date)?;
+
+    println!("Marking invoice #{} as paid on {}", invoice.number, when);
+    Ok(input::confirm()?
+        .then(|| Event::new_update(&client.key,
+                Update::Paid(invoice.number.clone(), when))))
+
+}
+
+fn invoice_posting(invoice: &Invoice, client: &Client) -> MaybeEvent {
+    let total = invoice.calculate();
+    let start = invoice.period.from.format("%b %-d");
+    let end = invoice.period.until.format(
+        if invoice.period.from.month() == invoice.period.until.month() {
+            "%-d"
+        } else {
+            "%b %-d"
+        },
+    );
+
+    let mut items = Vec::new();
+
+    items.push((
+        format!("assets:receivable:{}", client.name),
+        format!("{}", total.subtotal),
+    ));
+
+    for (TaxRate(name, _), amount) in total.taxes.iter() {
+        items.push((
+            format!("assets:receivable:{}", name),
+            format!("{}", amount),
+        ));
+    }
+    items.push((
+        format!("revenues:clients:{}", client.name),
+        format!("{}", total.total * Decimal::from(-1)),
+    ));
+
+    println!(
+        "{} {} invoice  ; {} - {}",
+        invoice.date, client.name, start, end
+    );
+
+    let max_len = items
+        .iter()
+        .map(|(a, b)| a.len() + b.len())
+        .fold(0, |max, x| if max > x { max } else { x });
+
+
+    for (account, amount) in items.iter() {
+        let padding = max_len - account.len() + 4;
+        println!("    {0}{1:>2$}", account, amount, padding);
+    }
+
+    Ok(None)
+}
+
+#[derive(Debug, Error)]
+pub enum RunError {
+    #[error("IO Error: {source}")]
+    Io {
+        #[from]
+        source: io::Error,
+    },
+
+    #[error("Error decoding history: {source}")]
+    Format {
+        #[from]
+        source: serde_lexpr::Error,
+    },
+
+    #[error("Input Error: {source}")]
+    Input {
+        #[from]
+        source: inquire::error::InquireError,
+    },
+
+    #[error("{source}")]
+    Client {
+        #[from]
+        source: ClientError,
+    },
 }
 
 #[cfg(test)]
@@ -413,31 +531,4 @@ mod tests {
         run_cmd(Command::ListClients, &history)?;
         Ok(())
     }
-}
-
-#[derive(Debug, Error)]
-pub enum RunError {
-    #[error("IO Error: {source}")]
-    Io {
-        #[from]
-        source: io::Error,
-    },
-
-    #[error("Error decoding history: {source}")]
-    Format {
-        #[from]
-        source: serde_lexpr::Error,
-    },
-
-    #[error("Input Error: {source}")]
-    Input {
-        #[from]
-        source: inquire::error::InquireError,
-    },
-
-    #[error("{source}")]
-    Client {
-        #[from]
-        source: ClientError,
-    },
 }

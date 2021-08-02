@@ -74,6 +74,15 @@ pub fn period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
     Ok(Period::new(from, until))
 }
 
+pub fn paid_date(issue_date: NaiveDate) -> InputResult<NaiveDate> {
+    let today = Local::today().naive_local();
+
+    DateSelect::new("Paid on:")
+        .with_min_date(issue_date)
+        .with_max_date(today)
+        .prompt()
+}
+
 pub fn service_description<'a>(
     past_services: &BTreeSet<String>,
 ) -> InputResult<String> {

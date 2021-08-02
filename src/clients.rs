@@ -41,8 +41,10 @@ impl Client {
             }
             Update::Invoiced(invoice) => {
                 if invoice.number != self.next_invoice_num() {
-                    return Err(ClientError::Invoice(invoice.number,
-                        OutOfSequence(self.invoices.len())));
+                    return Err(ClientError::Invoice(
+                        invoice.number,
+                        OutOfSequence(self.invoices.len()),
+                    ));
                 }
                 self.invoices.insert(invoice.number, invoice.clone());
                 self.past_services.insert(invoice.service.clone());
@@ -108,6 +110,12 @@ impl Client {
 
     pub fn invoices<'a>(&'a self) -> impl Iterator<Item = &'a Invoice> {
         self.invoices.values()
+    }
+
+    pub fn unpaid_invoices<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = &'a usize> {
+        self.invoices().filter(|i| i.paid.is_none()).map(|i| &i.number)
     }
 }
 

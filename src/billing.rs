@@ -144,7 +144,7 @@ impl Mul<Decimal> for Money {
 
 impl fmt::Display for Money {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{}", self.0, self.1)
+        write!(f, "{}{:.2}", self.0, self.1)
     }
 }
 
@@ -161,7 +161,7 @@ impl fmt::Display for Rate {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct TaxRate(String, Decimal);
+pub struct TaxRate(pub String, pub Decimal);
 
 impl TaxRate {
     pub fn new(name: String, percentage: i64) -> Self {
