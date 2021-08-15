@@ -27,59 +27,85 @@ use thiserror::Error;
  *                             | markdown)
  */
 
+/*
+ * list [clients | invoices <client>]
+ * add
+ * show <client> (rates | taxes |
+ *      invoice <num> (posting | payment | markdown)
+ * set <client> [rate | taxes | address | name ]
+ * invoice <client>
+ * mark-paid <client> <number>
+ * remove <client>
+ */
+
 #[derive(Clap)]
 pub enum Command {
-    #[clap(about = "List all clients")]
-    ListClients,
-    #[clap(about = "Add a new client")]
-    AddClient,
-
-    #[clap(about = "Work with a specific client")]
-    Client {
-        #[clap(about = "key name to identify the client")]
-        key: String,
+    #[clap(about = "List clients or invoices")]
+    List {
         #[clap(subcommand)]
-        subcommand: ClientSubCmd,
+        listing: Listable,
     },
 
-    #[clap(about = "Work with a specific invoice")]
+    #[clap(about = "Add a new client")]
+    Add,
+
+    #[clap(about = "Show clients and invoices")]
+    Show {
+        #[clap(about = "key name to identify the client")]
+        client: String,
+        #[clap(subcommand)]
+        property: Option<Showable>,
+    },
+
+    Set {
+        #[clap(about = "key name to identify the client")]
+        client: String,
+        #[clap(subcommand)]
+        property: Setable,
+    },
+
+    #[clap(about = "Generate a new invoice for a client")]
     Invoice {
         #[clap(about = "key name to identify the client")]
-        client_key: String,
-        #[clap(about = "Invoice number with respect to the client")]
-        num: usize,
-        #[clap(subcommand)]
-        subcommand: InvoiceSubCmd,
+        client: String,
+    },
+
+    #[clap(about = "Record an invoice as paid")]
+    MarkPaid {
+        #[clap(about = "key name to identify the client")]
+        client: String,
+        number: usize,
+    },
+
+    #[clap(about = "Remove a client, all history will be maintained")]
+    Remove {
+        #[clap(about = "key name to identify the client")]
+        client: String,
     },
 }
 
 #[derive(Clap)]
-pub enum ClientSubCmd {
-    #[clap(about = "Create a new invoice for a client")]
-    Invoice,
-    #[clap(about = "Show a client or specific details")]
-    Show {
-        #[clap(subcommand)]
-        property: Option<ClientShowSubCmd>,
+pub enum Listable {
+    Clients,
+    Invoices {
+        #[clap(about = "key name to identify the client")]
+        client: String,
     },
-    #[clap(about = "Set or change aspects of a client")]
-    Set {
-        #[clap(subcommand)]
-        property: ClientSetSubCmd,
-    },
-    #[clap(about = "Remove the client")]
-    Remove,
 }
 
 #[derive(Clap)]
-pub enum ClientShowSubCmd {
+pub enum Showable {
     Rates,
-    #[clap(about = "List all invoices for a client")]
-    Invoices,
+    Taxes,
+    Invoice {
+        number: usize,
+        #[clap(subcommand)]
+        view: Option<InvoiceView>,
+    },
 }
 
 #[derive(Clap)]
-pub enum ClientSetSubCmd {
+pub enum Setable {
     #[clap(about = "Set the billing rate for a client")]
     Rate,
     #[clap(about = "Set the tax rate(s) for a client")]
@@ -91,16 +117,12 @@ pub enum ClientSetSubCmd {
 }
 
 #[derive(Clap)]
-pub enum InvoiceSubCmd {
-    #[clap(about = "Show the invoice")]
-    Show,
-    #[clap(about = "Mark the invoice paid")]
-    Paid,
-    #[clap(
-        about = "Output a posting of the invoice and payment in ledger format"
-    )]
+pub enum InvoiceView {
+    #[clap(about = "Invoice in ledger format")]
     Posting,
-    #[clap(about = "Output in markdown for generating a PDF")]
+    #[clap(about = "Payment in ledger format")]
+    Payment,
+    #[clap(about = "Markdown format of the invoice")]
     Markdown,
 }
 
@@ -174,21 +196,27 @@ fn run_cmd(cmd: Command, events: &Vec<Event>) -> MaybeEvent {
     let mut clients = from_events(events)?;
 
     if let Some(event) = match cmd {
-        Command::AddClient => add_client(),
-        Command::ListClients => list_clients(&clients),
-        Command::Client { key, subcommand } => {
-            let client = clients.get(&key)?;
-            run_client_cmd(&client, subcommand)
+        Command::Add => add_client(),
+        Command::List { listing } => run_listings(&clients, listing),
+        Command::Invoice { client } => invoice(clients.get(&client)?),
+        Command::Show { client, property } => {
+            run_show(clients.get(&client)?, property)
         }
-        Command::Invoice {
-            client_key,
-            num,
-            subcommand,
-        } => {
-            let client = clients.get(&client_key)?;
-            let invoice = client.invoice(&num)?;
-            run_invoice_cmd(invoice, client, subcommand)
+        Command::Set { client, property } => {
+            let client = clients.get(&client)?;
+            match property {
+                Setable::Taxes => set_taxes(client),
+                Setable::Rate => set_rate(client),
+                Setable::Name => change_name(client),
+                Setable::Address => change_address(client),
+            }
         }
+        Command::MarkPaid { client, number } => {
+            let client = clients.get(&client)?;
+            let invoice = client.invoice(&number)?;
+            mark_paid(invoice, client)
+        }
+        Command::Remove { client } => Ok(None), // TODO impl
     }? {
         apply_event(&mut clients, &event)?;
         Ok(Some(event))
@@ -197,36 +225,39 @@ fn run_cmd(cmd: Command, events: &Vec<Event>) -> MaybeEvent {
     }
 }
 
-fn run_client_cmd(client: &Client, cmd: ClientSubCmd) -> MaybeEvent {
-    match cmd {
-        ClientSubCmd::Invoice => invoice(client),
-        ClientSubCmd::Show { property } => match property {
-            None => show_client(client),
-            Some(prop) => match prop {
-                ClientShowSubCmd::Rates => show_client_rates(client),
-                ClientShowSubCmd::Invoices => list_invoices(client),
-            },
-        },
-        ClientSubCmd::Set { property } => match property {
-            ClientSetSubCmd::Taxes => set_taxes(client),
-            ClientSetSubCmd::Rate => set_rate(client),
-            ClientSetSubCmd::Name => change_name(client),
-            ClientSetSubCmd::Address => change_address(client),
-        },
-        ClientSubCmd::Remove => Ok(None), // TODO impl
+fn run_listings(clients: &Clients, listing: Listable) -> MaybeEvent {
+    match listing {
+        Listable::Clients => list_clients(&clients),
+        Listable::Invoices { client } => list_invoices(clients.get(&client)?),
     }
 }
 
-fn run_invoice_cmd(
+fn run_show(client: &Client, property: Option<Showable>) -> MaybeEvent {
+    match property {
+        None => show_client(client),
+        Some(prop) => match prop {
+            Showable::Rates => show_client_rates(client),
+            Showable::Taxes => Ok(None), // TODO show_client_taxes(client),
+            Showable::Invoice { number, view } => {
+                let invoice = client.invoice(&number)?;
+                run_show_invoice(invoice, client, view)
+            }
+        },
+    }
+}
+
+fn run_show_invoice(
     invoice: &Invoice,
     client: &Client,
-    cmd: InvoiceSubCmd,
+    view: Option<InvoiceView>,
 ) -> MaybeEvent {
-    match cmd {
-        InvoiceSubCmd::Show => show_invoice(invoice),
-        InvoiceSubCmd::Paid => mark_paid(invoice, client),
-        InvoiceSubCmd::Posting => invoice_posting(invoice, client),
-        InvoiceSubCmd::Markdown => Ok(None), // TODO impl
+    match view {
+        None => show_invoice(invoice),
+        Some(view) => match view {
+            InvoiceView::Payment => Ok(None), // TODO invoice_payment_posting(invoice, client),
+            InvoiceView::Posting => invoice_posting(invoice, client),
+            InvoiceView::Markdown => Ok(None), // TODO impl
+        },
     }
 }
 
@@ -239,7 +270,8 @@ fn add_client() -> MaybeEvent {
 
 fn list_clients(clients: &Clients) -> MaybeEvent {
     for client in clients.iter() {
-        println!("{}", client); }
+        println!("{}", client);
+    }
     Ok(None)
 }
 
@@ -357,10 +389,12 @@ fn mark_paid(invoice: &Invoice, client: &Client) -> MaybeEvent {
     let when = input::paid_date(invoice.date)?;
 
     println!("Marking invoice #{} as paid on {}", invoice.number, when);
-    Ok(input::confirm()?
-        .then(|| Event::new_update(&client.key,
-                Update::Paid(invoice.number.clone(), when))))
-
+    Ok(input::confirm()?.then(|| {
+        Event::new_update(
+            &client.key,
+            Update::Paid(invoice.number.clone(), when),
+        )
+    }))
 }
 
 fn invoice_posting(invoice: &Invoice, client: &Client) -> MaybeEvent {
@@ -402,12 +436,15 @@ fn invoice_posting(invoice: &Invoice, client: &Client) -> MaybeEvent {
         .map(|(a, b)| a.len() + b.len())
         .fold(0, |max, x| if max > x { max } else { x });
 
-
     for (account, amount) in items.iter() {
         let padding = max_len - account.len() + 4;
         println!("    {0}{1:>2$}", account, amount, padding);
     }
 
+    Ok(None)
+}
+
+fn invoice_markdown(invoice: &Invoice, client: &Client) -> MaybeEvent {
     Ok(None)
 }
 
