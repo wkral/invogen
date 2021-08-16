@@ -43,6 +43,7 @@ mod billing;
 mod clients;
 mod historical;
 mod input;
+mod templates;
 mod run;
 
 use clap::{Clap, ValueHint};

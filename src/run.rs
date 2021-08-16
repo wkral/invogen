@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use crate::billing::{Invoice, InvoiceItem, TaxRate};
 use crate::clients::{Client, ClientError, Clients, Update};
 use crate::input;
+use crate::templates;
 
 use chrono::naive::MIN_DATE;
 use chrono::{DateTime, Datelike, Utc};
@@ -125,8 +126,8 @@ pub enum InvoiceView {
     Posting,
     #[clap(about = "Payment in ledger format")]
     Payment,
-    #[clap(about = "Markdown format of the invoice")]
-    Markdown,
+    #[clap(about = "Latex format of the invoice")]
+    Latex,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -262,7 +263,7 @@ fn run_show_invoice(
         Some(view) => match view {
             InvoiceView::Payment => Ok(None), // TODO invoice_payment_posting(invoice, client),
             InvoiceView::Posting => invoice_posting(invoice, client),
-            InvoiceView::Markdown => Ok(None), // TODO impl
+            InvoiceView::Latex => invoice_tex(invoice, client),
         },
     }
 }
@@ -470,7 +471,8 @@ fn invoice_posting(invoice: &Invoice, client: &Client) -> MaybeEvent {
     Ok(None)
 }
 
-fn invoice_markdown(invoice: &Invoice, client: &Client) -> MaybeEvent {
+fn invoice_tex(invoice: &Invoice, client: &Client) -> MaybeEvent {
+    templates::invoice(invoice, client)?;
     Ok(None)
 }
 
@@ -492,6 +494,12 @@ pub enum RunError {
     Input {
         #[from]
         source: inquire::error::InquireError,
+    },
+
+    #[error("Render Error: {source}")]
+    Render {
+        #[from]
+        source: askama::Error,
     },
 
     #[error("{source}")]
