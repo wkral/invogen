@@ -1,7 +1,8 @@
 # invogen
-Invoice generator, also rust learning project
+Invoice generator, also a project for learning rust
 
-Built for a personal use-case, but if you find it useful you're welcome to use it.
+Built for a personal use-case, but if you find it useful you're welcome to use
+it.
 
 ## Help
 
@@ -19,9 +20,12 @@ OPTIONS:
     -f, --file <file>    [default: client.history]
 
 SUBCOMMANDS:
-    add-client      Add a new client
-    client          Work with a specific client
-    help            Prints this message or the help of the given subcommand(s)
-    invoice         Work with a specific invoice
-    list-clients    List all clients
+    add          Add a new client or service
+    help         Prints this message or the help of the given subcommand(s)
+    invoice      Generate a new invoice for a client
+    list         List clients, services, or invoices
+    mark-paid    Record an invoice as paid
+    remove       Remove a client, all history will be maintained
+    set          Set properties of clients and services
+    show         Show clients and invoices
 ```

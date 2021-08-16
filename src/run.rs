@@ -19,7 +19,7 @@ use thiserror::Error;
  *
  * list [clients | invoices <client> | services <client>]
  * add [client | service <client>]
- * show <client> (rates | taxes |
+ * show <client> ( taxes |
  *      invoice <num> (posting | payment | markdown)
  * set <client> [rate | taxes | address | name ]
  * invoice <client>
@@ -29,13 +29,13 @@ use thiserror::Error;
 
 #[derive(Clap)]
 pub enum Command {
-    #[clap(about = "List clients or invoices")]
+    #[clap(about = "List clients, services, or invoices")]
     List {
         #[clap(subcommand)]
         listing: Listable,
     },
 
-    #[clap(about = "Add a new client")]
+    #[clap(about = "Add a new client or service")]
     Add {
         #[clap(subcommand)]
         property: Addable,
@@ -49,6 +49,7 @@ pub enum Command {
         property: Option<Showable>,
     },
 
+    #[clap(about = "Set properties of clients and services")]
     Set {
         #[clap(about = "key name to identify the client")]
         client: String,
@@ -66,6 +67,7 @@ pub enum Command {
     MarkPaid {
         #[clap(about = "key name to identify the client")]
         client: String,
+        #[clap(about = "Invoice number to show")]
         number: usize,
     },
 
@@ -78,7 +80,9 @@ pub enum Command {
 
 #[derive(Clap)]
 pub enum Addable {
+    #[clap(about = "Add a new client")]
     Client,
+    #[clap(about = "Add a service with billing rate for a client")]
     Service {
         #[clap(about = "key name to identify the client")]
         client: String,
@@ -87,11 +91,14 @@ pub enum Addable {
 
 #[derive(Clap)]
 pub enum Listable {
+    #[clap(about = "List current client")]
     Clients,
+    #[clap(about = "List invoices for a client")]
     Invoices {
         #[clap(about = "key name to identify the client")]
         client: String,
     },
+    #[clap(about = "List services billable to a client")]
     Services {
         #[clap(about = "key name to identify the client")]
         client: String,
@@ -100,8 +107,11 @@ pub enum Listable {
 
 #[derive(Clap)]
 pub enum Showable {
+    #[clap(about = "Show taxes applied to client invoices")]
     Taxes,
+    #[clap(about = "Show an invoice or in specialized formats")]
     Invoice {
+        #[clap(about = "Invoice number to show")]
         number: usize,
         #[clap(subcommand)]
         view: Option<InvoiceView>,
@@ -110,7 +120,7 @@ pub enum Showable {
 
 #[derive(Clap)]
 pub enum Setable {
-    #[clap(about = "Set the billing rate for a client")]
+    #[clap(about = "Set the billing rate for a client service")]
     Rate,
     #[clap(about = "Set the tax rate(s) for a client")]
     Taxes,
