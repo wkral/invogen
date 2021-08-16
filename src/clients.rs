@@ -81,6 +81,15 @@ impl Client {
             .collect()
     }
 
+    pub fn current_taxes(&self) -> Vec<TaxRate> {
+        self.taxes
+            .current()
+            .into_iter()
+            .map(|i| i.clone())
+            .flatten()
+            .collect()
+    }
+
     pub fn billed_until(&self) -> Option<NaiveDate> {
         self.invoices
             .values()

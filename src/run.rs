@@ -8,7 +8,7 @@ use crate::clients::{Client, ClientError, Clients, Update};
 use crate::input;
 use crate::templates;
 
-use chrono::naive::MIN_DATE;
+use chrono::naive::MAX_DATE;
 use chrono::{DateTime, Datelike, Utc};
 use clap::Clap;
 use rust_decimal::Decimal;
@@ -309,6 +309,11 @@ fn show_client(client: &Client) -> MaybeEvent {
     println!("{}", client);
 
     list_services(client)?;
+
+    for tax in client.current_taxes().iter() {
+        println!("Tax: {}", tax);
+    }
+
     if let Some(date) = client.billed_until() {
         println!("Billed Until: {}", date);
     }
@@ -323,7 +328,7 @@ fn show_client(client: &Client) -> MaybeEvent {
 
 fn invoice(client: &Client) -> MaybeEvent {
     let mut items: Vec<InvoiceItem> = Vec::new();
-    let mut start = MIN_DATE;
+    let mut start = MAX_DATE;
     loop {
         let period = input::period(client.billed_until())?;
         let name = input::service_select(&client.service_names())?;
