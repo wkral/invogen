@@ -1,11 +1,15 @@
+use std::cmp;
 use std::fmt;
 use std::ops::{Add, Mul};
 
+use chrono::naive::{MAX_DATE, MIN_DATE};
 use chrono::{Datelike, Local, NaiveDate};
 use chrono_utilities::naive::DateTransitions;
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString, EnumVariantNames};
+
+use crate::historical::Historical;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Period {
@@ -72,6 +76,31 @@ impl Period {
 impl fmt::Display for Period {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} — {}", self.from, self.until)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Service {
+    pub name: String,
+    pub rates: Historical<Rate>,
+}
+
+impl Service {
+    pub fn new(name: String) -> Self {
+        Self {
+            name: name,
+            rates: Historical::new(),
+        }
+    }
+}
+
+impl fmt::Display for Service {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} ", self.name)?;
+        match self.rates.current() {
+            None => write!(f, "(No current rate set) "),
+            Some(rate) => write!(f, "{}", rate),
+        }
     }
 }
 
@@ -194,12 +223,43 @@ impl fmt::Display for InvoiceTotal {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct InvoiceItem {
+    pub name: String,
+    pub rate: Rate,
+    pub period: Period,
+    pub quantity: Decimal,
+    pub amount: Money,
+}
+
+impl InvoiceItem {
+    pub fn new(name: String, rate: Rate, period: Period) -> Self {
+        let quantity = period.num_units(&rate.per);
+        let amount = rate.amount * quantity;
+        Self {
+            name,
+            rate,
+            period,
+            quantity,
+            amount,
+        }
+    }
+}
+
+impl fmt::Display for InvoiceItem {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} {}, {:.2} @ {}: {}",
+            self.name, self.period, self.quantity, self.rate, self.amount
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Invoice {
     pub date: NaiveDate,
     pub number: usize,
-    pub period: Period,
-    pub service: String,
-    pub rate: Rate,
+    pub items: Vec<InvoiceItem>,
     pub tax_rates: Vec<TaxRate>,
     pub paid: Option<NaiveDate>,
 }
@@ -207,9 +267,7 @@ pub struct Invoice {
 impl Invoice {
     pub fn new(
         number: usize,
-        period: Period,
-        service: String,
-        rate: &Rate,
+        items: Vec<InvoiceItem>,
         tax_rates: Vec<TaxRate>,
     ) -> Self {
         let date = Local::today().naive_local();
@@ -217,16 +275,19 @@ impl Invoice {
         Self {
             date,
             number,
-            period,
-            service,
-            rate: rate.clone(),
+            items,
             tax_rates: tax_rates.clone(),
             paid: None,
         }
     }
 
     pub fn calculate(&self) -> InvoiceTotal {
-        let subtotal = self.rate.amount * self.period.num_units(&self.rate.per);
+        let subtotal = self
+            .items
+            .iter()
+            .map(|i| i.amount)
+            .reduce(|acc, x| acc + x)
+            .expect("Invoice should have at least one item");
         let taxes: Vec<(TaxRate, Money)> = self
             .tax_rates
             .iter()
@@ -240,6 +301,17 @@ impl Invoice {
             total,
         }
     }
+
+    pub fn overall_period(&self) -> Period {
+        let (min, max) = self
+            .items
+            .iter()
+            .map(|i| (i.period.from, i.period.until))
+            .fold((MAX_DATE, MIN_DATE), |(min, max), (from, until)| {
+                (cmp::min(min, from), cmp::max(max, until))
+            });
+        Period::new(min, max)
+    }
 }
 
 impl fmt::Display for Invoice {
@@ -247,18 +319,14 @@ impl fmt::Display for Invoice {
         write!(
             f,
             "Invoice: #{}\n\
-             Period: {}\n\
-             For: {}\n\
-             {:.2} {}s @ {}\n\n\
+             Date: {}\n\n",
+            self.number, self.date,
+        )?;
 
-             {}",
-            self.number,
-            self.period,
-            self.service,
-            self.period.num_units(&self.rate.per),
-            self.rate.per,
-            self.rate,
-            self.calculate(),
-        )
+        for item in self.items.iter() {
+            writeln!(f, "{}", item)?;
+        }
+
+        write!(f, "\n\n{}", self.calculate())
     }
 }

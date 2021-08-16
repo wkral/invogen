@@ -1,11 +1,13 @@
+use std::cmp;
 use std::fs::{self, File};
 use std::io::{self, BufReader};
 use std::path::PathBuf;
 
-use crate::billing::{Invoice, TaxRate};
+use crate::billing::{Invoice, InvoiceItem, TaxRate};
 use crate::clients::{Client, ClientError, Clients, Update};
 use crate::input;
 
+use chrono::naive::MIN_DATE;
 use chrono::{DateTime, Datelike, Utc};
 use clap::Clap;
 use rust_decimal::Decimal;
@@ -14,22 +16,8 @@ use thiserror::Error;
 
 /* Argument Stucture
  *
- * list-clients
- * add-client
- * client <key> {
- *  | invoice
- *  | show ( invoices | rates | taxes)
- *  | set (rate | taxes | address | name)
- *  | remove )
- * invoice <client-key> <num> (show
- *                             | paid
- *                             | posting
- *                             | markdown)
- */
-
-/*
- * list [clients | invoices <client>]
- * add
+ * list [clients | invoices <client> | services <client>]
+ * add [client | service <client>]
  * show <client> (rates | taxes |
  *      invoice <num> (posting | payment | markdown)
  * set <client> [rate | taxes | address | name ]
@@ -47,7 +35,10 @@ pub enum Command {
     },
 
     #[clap(about = "Add a new client")]
-    Add,
+    Add {
+        #[clap(subcommand)]
+        property: Addable,
+    },
 
     #[clap(about = "Show clients and invoices")]
     Show {
@@ -85,9 +76,22 @@ pub enum Command {
 }
 
 #[derive(Clap)]
+pub enum Addable {
+    Client,
+    Service {
+        #[clap(about = "key name to identify the client")]
+        client: String,
+    },
+}
+
+#[derive(Clap)]
 pub enum Listable {
     Clients,
     Invoices {
+        #[clap(about = "key name to identify the client")]
+        client: String,
+    },
+    Services {
         #[clap(about = "key name to identify the client")]
         client: String,
     },
@@ -95,7 +99,6 @@ pub enum Listable {
 
 #[derive(Clap)]
 pub enum Showable {
-    Rates,
     Taxes,
     Invoice {
         number: usize,
@@ -196,7 +199,10 @@ fn run_cmd(cmd: Command, events: &Vec<Event>) -> MaybeEvent {
     let mut clients = from_events(events)?;
 
     if let Some(event) = match cmd {
-        Command::Add => add_client(),
+        Command::Add { property } => match property {
+            Addable::Client => add_client(),
+            Addable::Service { client } => add_service(clients.get(&client)?),
+        },
         Command::List { listing } => run_listings(&clients, listing),
         Command::Invoice { client } => invoice(clients.get(&client)?),
         Command::Show { client, property } => {
@@ -229,6 +235,7 @@ fn run_listings(clients: &Clients, listing: Listable) -> MaybeEvent {
     match listing {
         Listable::Clients => list_clients(&clients),
         Listable::Invoices { client } => list_invoices(clients.get(&client)?),
+        Listable::Services { client } => list_services(clients.get(&client)?),
     }
 }
 
@@ -236,7 +243,6 @@ fn run_show(client: &Client, property: Option<Showable>) -> MaybeEvent {
     match property {
         None => show_client(client),
         Some(prop) => match prop {
-            Showable::Rates => show_client_rates(client),
             Showable::Taxes => Ok(None), // TODO show_client_taxes(client),
             Showable::Invoice { number, view } => {
                 let invoice = client.invoice(&number)?;
@@ -268,6 +274,19 @@ fn add_client() -> MaybeEvent {
         .then(|| Event::new(&key, Change::Added { name, address })))
 }
 
+fn add_service(client: &Client) -> MaybeEvent {
+    let (name, rate, effective) = input::service()?;
+    println!("\nAdding service {} for client {}", name, client.name);
+    println!("Billing at: {}", rate);
+    println!("Effective: {}", effective);
+    Ok(input::confirm()?.then(|| {
+        Event::new_update(
+            &client.key,
+            Update::ServiceRate(name, effective, rate),
+        )
+    }))
+}
+
 fn list_clients(clients: &Clients) -> MaybeEvent {
     for client in clients.iter() {
         println!("{}", client);
@@ -278,7 +297,7 @@ fn list_clients(clients: &Clients) -> MaybeEvent {
 fn show_client(client: &Client) -> MaybeEvent {
     println!("{}", client);
 
-    show_current_rate(client);
+    list_services(client)?;
     if let Some(date) = client.billed_until() {
         println!("Billed Until: {}", date);
     }
@@ -291,33 +310,26 @@ fn show_client(client: &Client) -> MaybeEvent {
     Ok(None)
 }
 
-fn show_client_rates(client: &Client) -> MaybeEvent {
-    show_current_rate(client);
-
-    println!("Historical Rates:\n");
-    for (effective, rate) in client.rates() {
-        println!("{} effective {}", rate, effective);
-    }
-    Ok(None)
-}
-
-fn show_current_rate(client: &Client) {
-    if let Some(current) = client.current_rate() {
-        println!("Current Rate: {}", current);
-    } else {
-        println!("No current rate");
-    }
-}
-
 fn invoice(client: &Client) -> MaybeEvent {
-    let period = input::period(client.billed_until())?;
-    let service = input::service_description(client.past_services())?;
-    let rate = client
-        .rate_as_of(period.from)
-        .ok_or(ClientError::NoRate(client.key.clone(), period.from))?;
-    let taxes = client.taxes_as_of(period.from);
-    let invoice =
-        Invoice::new(client.next_invoice_num(), period, service, rate, taxes);
+    let mut items: Vec<InvoiceItem> = Vec::new();
+    let mut start = MIN_DATE;
+    loop {
+        let period = input::period(client.billed_until())?;
+        let name = input::service_select(&client.service_names())?;
+        let rate = client
+            .service(name.clone())
+            .map(|s| s.rates.as_of(period.from))
+            .flatten()
+            .ok_or(ClientError::NoRate(client.key.clone(), period.from))?;
+        start = cmp::min(start, period.from);
+        items.push(InvoiceItem::new(name.clone(), rate.clone(), period));
+
+        if !input::another()? {
+            break;
+        }
+    }
+    let taxes = client.taxes_as_of(start);
+    let invoice = Invoice::new(client.next_invoice_num(), items, taxes);
 
     println!("Adding invoice:\n\n{}", invoice);
     Ok(input::confirm()?
@@ -338,12 +350,20 @@ fn set_taxes(client: &Client) -> MaybeEvent {
 }
 
 fn set_rate(client: &Client) -> MaybeEvent {
+    let service = input::service_select(&client.service_names())?;
     let (rate, effective) = input::rate()?;
 
-    println!("Setting billing rate for {} to: {}", client.name, rate);
+    println!(
+        "Setting billing rate for {}, for {} to: {}",
+        service, client.name, rate
+    );
     println!("Effective: {}", effective);
-    Ok(input::confirm()?
-        .then(|| Event::new_update(&client.key, Update::Rate(effective, rate))))
+    Ok(input::confirm()?.then(|| {
+        Event::new_update(
+            &client.key,
+            Update::ServiceRate(service, effective, rate),
+        )
+    }))
 }
 
 fn change_address(client: &Client) -> MaybeEvent {
@@ -372,10 +392,14 @@ fn list_invoices(client: &Client) -> MaybeEvent {
             "Unpaid".to_string()
         };
         let total = i.calculate();
-        println!(
-            "#{} {}, {}, {} ({})",
-            i.number, i.period, i.service, total.total, paid
-        )
+        println!("#{} {}, {} ({})", i.number, i.date, total.total, paid)
+    }
+    Ok(None)
+}
+
+fn list_services(client: &Client) -> MaybeEvent {
+    for service in client.services.values() {
+        println!("{}", service);
     }
     Ok(None)
 }
@@ -399,14 +423,16 @@ fn mark_paid(invoice: &Invoice, client: &Client) -> MaybeEvent {
 
 fn invoice_posting(invoice: &Invoice, client: &Client) -> MaybeEvent {
     let total = invoice.calculate();
-    let start = invoice.period.from.format("%b %-d");
-    let end = invoice.period.until.format(
-        if invoice.period.from.month() == invoice.period.until.month() {
-            "%-d"
-        } else {
-            "%b %-d"
-        },
-    );
+    let period = invoice.overall_period();
+    let start = period.from.format("%b %-d");
+    let end =
+        period
+            .until
+            .format(if period.from.month() == period.until.month() {
+                "%-d"
+            } else {
+                "%b %-d"
+            });
 
     let mut items = Vec::new();
 
@@ -527,14 +553,17 @@ mod tests {
 
     const RATE_UPDATE_STR: &str = formatcp!(
         "#(\"innotech\" \"2021-04-16T09:30:00Z\" \
-           (Updated Rate \"2021-04-15\" ({})))",
+           (Updated ServiceRate \"Stuff\" \"2021-04-15\" ({})))",
         RATE_RAW
     );
 
     #[test]
     fn serialize_update() -> Result<(), Error> {
-        let update =
-            Update::Rate(NaiveDate::from_ymd(2021, 04, 15), billing_rate());
+        let update = Update::ServiceRate(
+            "Stuff".to_string(),
+            NaiveDate::from_ymd(2021, 04, 15),
+            billing_rate(),
+        );
         let change = Change::Updated(update);
         let event = Event(
             "innotech".to_string(),
@@ -556,16 +585,23 @@ mod tests {
 
         let client = clients.get(&"innotech".to_string())?;
         let query_date = NaiveDate::from_ymd(2021, 04, 17);
+        let service = client.services.get("Stuff").unwrap();
 
         assert_eq!(&client.address, "Some Place");
-        assert_eq!(client.rate_as_of(query_date), Some(&billing_rate()));
+        assert_eq!(&service.name, "Stuff");
+        assert_eq!(service.rates.as_of(query_date), Some(&billing_rate()));
         Ok(())
     }
 
     #[test]
     fn list() -> Result<(), RunError> {
         let history = from_str(EVENTS_STR)?;
-        run_cmd(Command::ListClients, &history)?;
+        run_cmd(
+            Command::List {
+                listing: Listable::Clients,
+            },
+            &history,
+        )?;
         Ok(())
     }
 }

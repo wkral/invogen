@@ -1,21 +1,21 @@
-use chrono::{Local, NaiveDate};
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::billing::{Invoice, Rate, TaxRate};
+use crate::billing::{Invoice, Rate, Service, TaxRate};
+use crate::historical::Historical;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Client {
     pub key: String,
     pub name: String,
     pub address: String,
-    rates: BTreeMap<NaiveDate, Rate>,
+    pub services: BTreeMap<String, Service>,
     invoices: BTreeMap<usize, Invoice>,
-    taxes: BTreeMap<NaiveDate, Vec<TaxRate>>,
-    past_services: BTreeSet<String>,
+    taxes: Historical<Vec<TaxRate>>,
 }
 
 impl Client {
@@ -24,10 +24,9 @@ impl Client {
             key: key.to_string(),
             name: name.to_string(),
             address: address.to_string(),
-            rates: BTreeMap::new(),
+            services: BTreeMap::new(),
             invoices: BTreeMap::new(),
-            taxes: BTreeMap::new(),
-            past_services: BTreeSet::new(),
+            taxes: Historical::new(),
         }
     }
 
@@ -36,8 +35,12 @@ impl Client {
         match update {
             Update::Address(addr) => self.address = addr.clone(),
             Update::Name(name) => self.name = name.clone(),
-            Update::Rate(effective, rate) => {
-                self.rates.insert(effective.clone(), rate.clone());
+            Update::ServiceRate(name, effective, rate) => {
+                let service = self
+                    .services
+                    .entry(name.clone())
+                    .or_insert(Service::new(name.clone()));
+                service.rates.insert(effective, rate);
             }
             Update::Invoiced(invoice) => {
                 if invoice.number != self.next_invoice_num() {
@@ -47,7 +50,6 @@ impl Client {
                     ));
                 }
                 self.invoices.insert(invoice.number, invoice.clone());
-                self.past_services.insert(invoice.service.clone());
             }
             Update::Paid(num, when) => {
                 let mut invoice = self
@@ -60,14 +62,10 @@ impl Client {
                 invoice.paid = Some(*when)
             }
             Update::Taxes(effective, taxes) => {
-                self.taxes.insert(effective.clone(), taxes.clone());
+                self.taxes.insert(effective, taxes);
             }
         };
         Ok(())
-    }
-
-    pub fn rate_as_of(&self, date: NaiveDate) -> Option<&Rate> {
-        self.rates.range(..=date).next_back().map(|(_, rate)| rate)
     }
 
     pub fn next_invoice_num(&self) -> usize {
@@ -76,20 +74,18 @@ impl Client {
 
     pub fn taxes_as_of(&self, date: NaiveDate) -> Vec<TaxRate> {
         self.taxes
-            .range(..=date)
-            .next_back()
-            .map(|(_, rates)| rates.clone())
+            .as_of(date)
             .into_iter()
+            .map(|i| i.clone())
             .flatten()
             .collect()
     }
 
-    pub fn current_rate(&self) -> Option<&Rate> {
-        self.rate_as_of(Local::today().naive_local())
-    }
-
     pub fn billed_until(&self) -> Option<NaiveDate> {
-        self.invoices.values().last().map(|i| i.period.until)
+        self.invoices
+            .values()
+            .last()
+            .map(|i| i.overall_period().until)
     }
 
     pub fn invoice(&self, num: &usize) -> Result<&Invoice, ClientError> {
@@ -98,24 +94,25 @@ impl Client {
             .ok_or(ClientError::Invoice(num.clone(), InvoiceError::NotFound))
     }
 
-    pub fn past_services<'a>(&'a self) -> &'a BTreeSet<String> {
-        &self.past_services
+    pub fn service_names<'a>(&'a self) -> Vec<&'a str> {
+        self.services
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<&str>>()
     }
 
-    pub fn rates<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = (&'a NaiveDate, &'a Rate)> {
-        self.rates.iter()
+    pub fn service(&self, name: String) -> Option<&Service> {
+        self.services.get(&name)
     }
 
     pub fn invoices<'a>(&'a self) -> impl Iterator<Item = &'a Invoice> {
         self.invoices.values()
     }
 
-    pub fn unpaid_invoices<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = &'a usize> {
-        self.invoices().filter(|i| i.paid.is_none()).map(|i| &i.number)
+    pub fn unpaid_invoices<'a>(&'a self) -> impl Iterator<Item = &'a usize> {
+        self.invoices()
+            .filter(|i| i.paid.is_none())
+            .map(|i| &i.number)
     }
 }
 
@@ -129,7 +126,7 @@ impl fmt::Display for Client {
 pub enum Update {
     Address(String),
     Name(String),
-    Rate(NaiveDate, Rate),
+    ServiceRate(String, NaiveDate, Rate),
     Invoiced(Invoice),
     Paid(usize, NaiveDate),
     Taxes(NaiveDate, Vec<TaxRate>),

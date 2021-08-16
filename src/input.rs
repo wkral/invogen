@@ -7,7 +7,6 @@ use inquire::{
 use rust_decimal::Decimal;
 use strum::VariantNames;
 
-use std::collections::BTreeSet;
 use std::str::FromStr;
 
 type InputResult<T> = Result<T, InquireError>;
@@ -83,20 +82,20 @@ pub fn paid_date(issue_date: NaiveDate) -> InputResult<NaiveDate> {
         .prompt()
 }
 
-pub fn service_description<'a>(
-    past_services: &BTreeSet<String>,
-) -> InputResult<String> {
-    Text::new("Provided service:")
-        .with_suggester(&|val: &str| {
-            past_services
-                .iter()
-                .filter(|service| {
-                    service.to_lowercase().contains(&val.to_lowercase())
-                })
-                .map(|s| s.to_string())
-                .collect()
-        })
-        .prompt()
+pub fn service_select<'a>(services: &[&str]) -> InputResult<String> {
+    let service = Select::new("Service:", services)
+        .with_vim_mode(true)
+        .prompt()?
+        .value;
+
+    Ok(service.to_string())
+}
+
+pub fn service() -> InputResult<(String, Rate, NaiveDate)> {
+    let name = Text::new("Service:").prompt()?;
+    let (rate, effective) = rate()?;
+
+    Ok((name, rate, effective))
 }
 
 pub fn rate() -> InputResult<(Rate, NaiveDate)> {
@@ -149,4 +148,8 @@ pub fn taxes() -> InputResult<(Vec<TaxRate>, NaiveDate)> {
 
 pub fn confirm() -> InputResult<bool> {
     Confirm::new("Confirm").with_default(true).prompt()
+}
+
+pub fn another() -> InputResult<bool> {
+    Confirm::new("Add another").with_default(false).prompt()
 }

@@ -41,6 +41,7 @@
 
 mod billing;
 mod clients;
+mod historical;
 mod input;
 mod run;
 
@@ -60,8 +61,7 @@ struct Opts {
 fn main() {
     let opts = Opts::parse();
 
-    if let Err(error) = run::run_cmd_with_path(opts.subcommand, &opts.file)
-    {
+    if let Err(error) = run::run_cmd_with_path(opts.subcommand, &opts.file) {
         eprintln!("{}", error);
     }
 }
