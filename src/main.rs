@@ -46,10 +46,10 @@ mod input;
 mod templates;
 mod run;
 
-use clap::{Clap, ValueHint};
+use clap::{Parser, ValueHint};
 use std::path::PathBuf;
 
-#[derive(Clap)]
+#[derive(Parser)]
 struct Opts {
     #[clap(short, long, default_value="client.history",
         value_hint=ValueHint::FilePath)]

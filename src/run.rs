@@ -10,7 +10,7 @@ use crate::templates;
 
 use chrono::naive::MAX_DATE;
 use chrono::{DateTime, Datelike, Utc};
-use clap::Clap;
+use clap::Parser;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -27,116 +27,116 @@ use thiserror::Error;
  * remove <client>
  */
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub enum Command {
-    #[clap(about = "List clients, services, or invoices")]
+    /// List clients, services, or invoices
     List {
         #[clap(subcommand)]
         listing: Listable,
     },
 
-    #[clap(about = "Add a new client or service")]
+    /// Add a new client or service
     Add {
         #[clap(subcommand)]
         property: Addable,
     },
 
-    #[clap(about = "Show clients and invoices")]
+    /// Show clients and invoices
     Show {
-        #[clap(about = "key name to identify the client")]
+        /// key name to identify the client
         client: String,
         #[clap(subcommand)]
         property: Option<Showable>,
     },
 
-    #[clap(about = "Set properties of clients and services")]
+    /// Set properties of clients and services
     Set {
-        #[clap(about = "key name to identify the client")]
+        /// key name to identify the client
         client: String,
         #[clap(subcommand)]
         property: Setable,
     },
 
-    #[clap(about = "Generate a new invoice for a client")]
+    /// Generate a new invoice for a client
     Invoice {
-        #[clap(about = "key name to identify the client")]
+        /// key name to identify the client
         client: String,
     },
 
-    #[clap(about = "Record an invoice as paid")]
+    /// Record an invoice as paid
     MarkPaid {
-        #[clap(about = "key name to identify the client")]
+        /// key name to identify the client
         client: String,
-        #[clap(about = "Invoice number to show")]
+        /// Invoice number to show
         number: usize,
     },
 
-    #[clap(about = "Remove a client, all history will be maintained")]
+    /// Remove a client, all history will be maintained
     Remove {
-        #[clap(about = "key name to identify the client")]
+        /// key name to identify the client
         client: String,
     },
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub enum Addable {
-    #[clap(about = "Add a new client")]
+    /// Add a new client
     Client,
-    #[clap(about = "Add a service with billing rate for a client")]
+    /// Add a service with billing rate for a client
     Service {
-        #[clap(about = "key name to identify the client")]
+        /// key name to identify the client
         client: String,
     },
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub enum Listable {
-    #[clap(about = "List current client")]
+    /// List current client
     Clients,
-    #[clap(about = "List invoices for a client")]
+    /// List invoices for a client
     Invoices {
-        #[clap(about = "key name to identify the client")]
+        /// key name to identify the client
         client: String,
     },
-    #[clap(about = "List services billable to a client")]
+    /// List services billable to a client
     Services {
-        #[clap(about = "key name to identify the client")]
+        /// key name to identify the client
         client: String,
     },
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub enum Showable {
-    #[clap(about = "Show taxes applied to client invoices")]
+    /// Show taxes applied to client invoices
     Taxes,
-    #[clap(about = "Show an invoice or in specialized formats")]
+    /// Show an invoice or in specialized formats
     Invoice {
-        #[clap(about = "Invoice number to show")]
+        /// Invoice number to show
         number: usize,
         #[clap(subcommand)]
         view: Option<InvoiceView>,
     },
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub enum Setable {
-    #[clap(about = "Set the billing rate for a client service")]
+    /// Set the billing rate for a client service
     Rate,
-    #[clap(about = "Set the tax rate(s) for a client")]
+    /// Set the tax rate(s) for a client
     Taxes,
-    #[clap(about = "Change a client's address")]
+    /// Change a client's address
     Address,
-    #[clap(about = "Change a client's name")]
+    /// Change a client's name
     Name,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub enum InvoiceView {
-    #[clap(about = "Invoice in ledger format")]
+    /// Invoice in ledger format
     Posting,
-    #[clap(about = "Payment in ledger format")]
+    /// Payment in ledger format
     Payment,
-    #[clap(about = "Latex format of the invoice")]
+    /// Latex format of the invoice
     Latex,
 }
 

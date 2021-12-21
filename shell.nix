@@ -7,7 +7,7 @@ let
 in
 pkgs.mkShell {
   buildInputs = [
-    (pkgs.rust-bin.stable.latest.rust.override {
+    (pkgs.rust-bin.stable.latest.default.override {
       extensions = [
         "rust-src"
       ];
