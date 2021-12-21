@@ -233,7 +233,7 @@ fn run_cmd(cmd: Command, events: &Vec<Event>) -> MaybeEvent {
             let invoice = client.invoice(&number)?;
             mark_paid(invoice, client)
         }
-        Command::Remove { client } => Ok(None), // TODO impl
+        Command::Remove { client: _ } => Ok(None), // TODO impl
     }? {
         apply_event(&mut clients, &event)?;
         Ok(Some(event))
