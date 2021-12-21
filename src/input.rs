@@ -82,11 +82,10 @@ pub fn paid_date(issue_date: NaiveDate) -> InputResult<NaiveDate> {
         .prompt()
 }
 
-pub fn service_select<'a>(services: &[&str]) -> InputResult<String> {
+pub fn service_select<'a>(services: Vec<&str>) -> InputResult<String> {
     let service = Select::new("Service:", services)
         .with_vim_mode(true)
-        .prompt()?
-        .value;
+        .prompt()?;
 
     Ok(service.to_string())
 }
@@ -103,15 +102,13 @@ pub fn rate() -> InputResult<(Rate, NaiveDate)> {
         .with_formatter(&|i| format!("${:.2}", i))
         .with_error_message("Please type a valid number")
         .prompt()?;
-    let currency = Select::new("Currency:", &Currency::VARIANTS)
+    let currency = Select::new("Currency:", Currency::VARIANTS.to_vec())
         .with_vim_mode(true)
-        .prompt()?
-        .value;
+        .prompt()?;
 
-    let unit = Select::new("Per:", &Unit::VARIANTS)
+    let unit = Select::new("Per:", Unit::VARIANTS.to_vec())
         .with_vim_mode(true)
-        .prompt()?
-        .value;
+        .prompt()?;
 
     let effective = DateSelect::new("Effective:").prompt()?;
     let rate = Rate {

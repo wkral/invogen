@@ -6,7 +6,8 @@ let
   });
 in
 pkgs.mkShell {
-  buildInputs = [
+  nativeBuildInputs = [
+    pkgs.openssl
     (pkgs.rust-bin.stable.latest.default.override {
       extensions = [
         "rust-src"

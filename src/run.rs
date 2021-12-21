@@ -331,7 +331,7 @@ fn invoice(client: &Client) -> MaybeEvent {
     let mut start = MAX_DATE;
     loop {
         let period = input::period(client.billed_until())?;
-        let name = input::service_select(&client.service_names())?;
+        let name = input::service_select(client.service_names())?;
         let rate = client
             .service(name.clone())
             .map(|s| s.rates.as_of(period.from))
@@ -366,7 +366,7 @@ fn set_taxes(client: &Client) -> MaybeEvent {
 }
 
 fn set_rate(client: &Client) -> MaybeEvent {
-    let service = input::service_select(&client.service_names())?;
+    let service = input::service_select(client.service_names())?;
     let (rate, effective) = input::rate()?;
 
     println!(
