@@ -7,14 +7,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-askama = "0.11.0"
-askama_escape = "0.10.1"
-clap = { version = "3.0.0-rc.7", features = ["derive"] }
-const_format = "0.2.14"
+askama = "0.11.1"
+askama_escape = "0.10.3"
+clap = { version = "3.1.18", features = ["derive"] }
+const_format = "0.2.24"
 chrono = { version = "0.4.19", features = ["serde"] }
 chrono-utilities = "0.0.0-alpha1"
 inquire = { version = "0.2.1", features = ["date"] }
-rust_decimal = { version = "1.15.0", features = ["serde-float"] }
+rust_decimal = { version = "1.24.0", features = ["serde-float"] }
 lexpr = "0.2.6"
 serde = { version = "~1.0", features = ["derive"] }
 serde-lexpr = "0.1.2"
