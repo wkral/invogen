@@ -2,7 +2,8 @@ use crate::billing::{Currency, Money, Period, Rate, TaxRate, Unit};
 use chrono::{Duration, Local, NaiveDate};
 use chrono_utilities::naive::DateTransitions;
 use inquire::{
-    error::InquireError, Confirm, CustomType, DateSelect, Select, Text,
+    error::InquireError, formatter::CustomTypeFormatter, Confirm, CustomType,
+    DateSelect, Select, Text,
 };
 use rust_decimal::Decimal;
 use strum::VariantNames;
@@ -98,8 +99,9 @@ pub fn service() -> InputResult<(String, Rate, NaiveDate)> {
 }
 
 pub fn rate() -> InputResult<(Rate, NaiveDate)> {
+    let formatter: CustomTypeFormatter<Decimal> = &|i| format!("${:.2}", i);
     let amount: Decimal = CustomType::new("Amount:")
-        .with_formatter(&|i| format!("${:.2}", i))
+        .with_formatter(formatter)
         .with_error_message("Please type a valid number")
         .prompt()?;
     let currency = Select::new("Currency:", Currency::VARIANTS.to_vec())
@@ -125,10 +127,11 @@ pub fn rate() -> InputResult<(Rate, NaiveDate)> {
 pub fn taxes() -> InputResult<(Vec<TaxRate>, NaiveDate)> {
     let mut taxes: Vec<TaxRate> = Vec::new();
 
+    let formatter: CustomTypeFormatter<i64> = &|i| format!("{}%", i);
     loop {
         let name = Text::new("Tax name:").prompt()?;
         let percentage: i64 = CustomType::new("Percentage:")
-            .with_formatter(&|i| format!("{}%", i))
+            .with_formatter(formatter)
             .with_error_message("Please type a valid number")
             .prompt()?;
 
