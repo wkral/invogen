@@ -13,6 +13,8 @@ pkgs.mkShell {
         "rust-src"
       ];
     })
+    pkgs.cargo-outdated
+    pkgs.rust-analyzer
 
     # keep this line if you use bash
     pkgs.bashInteractive

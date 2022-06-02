@@ -544,15 +544,6 @@ mod tests {
     const RATE_RAW: &str = "(amount . #(USD 1000.0)) \
          (per . Month)";
 
-    const CLIENT_RAW: &str = "(key . \"innotech\") \
-         (name . \"Innotech\") \
-         (address . \"Some Place\") \
-         (rates) \
-         (invoices) \
-         (taxes)";
-
-    const CLIENT_STR: &str = formatcp!("({})", CLIENT_RAW);
-
     const CLIENT_ADD_STR: &str = formatcp!(
         "#(\"innotech\" \"2021-04-15T10:30:00Z\" \
            (Added (name . \"Innotech\") (address . \"Some Place\")))",
