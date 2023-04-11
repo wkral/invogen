@@ -9,7 +9,7 @@ edition = "2021"
 [dependencies]
 askama = "0.11.1"
 askama_escape = "0.10.3"
-clap = { version = "3.1.18", features = ["derive"] }
+clap = { version = "4.2.1", features = ["derive"] }
 const_format = "0.2.24"
 chrono = { version = "0.4.19", features = ["serde"] }
 chrono-utilities = "0.0.0-alpha1"
@@ -21,6 +21,10 @@ serde-lexpr = "0.1.2"
 strum = "0.23"
 strum_macros = "0.23.1"
 thiserror = "1.0"
+
+[build-dependencies]
+clap = { version = "4.2.1", features = ["derive"] }
+clap_complete = "4.2.0"
 
 [dev-dependencies]
 proptest = "1.0.0"

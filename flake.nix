@@ -15,7 +15,11 @@
         packages = rec {
           invogen = naersk-lib.buildPackage {
             src = ./.;
+            buildInputs = [ pkgs.installShellFiles ];
             nativeBuildInputs = [ pkgs.openssl ];
+            postBuild = ''
+              installShellCompletion target/release/build/invogen-*/out/invogen.bash
+            '';
           };
           default = invogen;
         };

@@ -40,24 +40,15 @@
  */
 
 mod billing;
+mod cli;
 mod clients;
 mod historical;
 mod input;
 mod templates;
 mod run;
 
-use clap::{Parser, ValueHint};
-use std::path::PathBuf;
-
-#[derive(Parser)]
-struct Opts {
-    #[clap(short, long, default_value="client.history",
-        value_hint=ValueHint::FilePath)]
-    file: PathBuf,
-
-    #[clap(subcommand)]
-    subcommand: run::Command,
-}
+use clap::Parser;
+use crate::cli::Opts;
 
 fn main() {
     let opts = Opts::parse();
