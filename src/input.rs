@@ -47,7 +47,7 @@ pub fn address() -> InputResult<String> {
 }
 
 pub fn period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
-    let today = Local::today().naive_local();
+    let today = Local::now().date_naive();
     let cur_eom = today
         .end_of_month()
         .expect("Error in chrono-utilities end_of_month");
@@ -75,7 +75,7 @@ pub fn period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
 }
 
 pub fn paid_date(issue_date: NaiveDate) -> InputResult<NaiveDate> {
-    let today = Local::today().naive_local();
+    let today = Local::now().date_naive();
 
     DateSelect::new("Paid on:")
         .with_min_date(issue_date)

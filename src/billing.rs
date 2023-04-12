@@ -2,7 +2,6 @@ use std::cmp;
 use std::fmt;
 use std::ops::{Add, Mul};
 
-use chrono::naive::{MAX_DATE, MIN_DATE};
 use chrono::{Datelike, Local, NaiveDate};
 use chrono_utilities::naive::DateTransitions;
 use rust_decimal::{Decimal, RoundingStrategy};
@@ -270,7 +269,7 @@ impl Invoice {
         items: Vec<InvoiceItem>,
         tax_rates: Vec<TaxRate>,
     ) -> Self {
-        let date = Local::today().naive_local();
+        let date = Local::now().date_naive();
 
         Self {
             date,
@@ -307,7 +306,7 @@ impl Invoice {
             .items
             .iter()
             .map(|i| (i.period.from, i.period.until))
-            .fold((MAX_DATE, MIN_DATE), |(min, max), (from, until)| {
+            .fold((NaiveDate::MAX, NaiveDate::MIN), |(min, max), (from, until)| {
                 (cmp::min(min, from), cmp::max(max, until))
             });
         Period::new(min, max)

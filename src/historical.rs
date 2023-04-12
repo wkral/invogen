@@ -23,7 +23,7 @@ impl<T: Clone> Historical<T> {
     }
 
     pub fn current(&self) -> Option<&T> {
-        self.as_of(Local::today().naive_local())
+        self.as_of(Local::now().date_naive())
     }
 
     pub fn insert(& mut self, effective: &NaiveDate, item: &T) {
