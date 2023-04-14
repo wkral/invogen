@@ -22,7 +22,7 @@ pub fn invoice<'a>(
 ) -> Result<(), RunError> {
 
     let data = InvoiceData {
-        invoice: invoice,
+        invoice,
         client_name: client.name.as_str(),
         address_lines: client.address.split("\n").collect(),
         total: &invoice.calculate(),

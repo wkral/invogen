@@ -21,6 +21,7 @@ fn main() -> Result<(), Error> {
     )?;
 
     println!("cargo:rerun-if-changed=src/cli.rs");
+    println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:warning=completion file is generated: {:?}", path);
 
     Ok(())
