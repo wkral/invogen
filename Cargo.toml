@@ -1,6 +1,6 @@
 [package]
 name = "invogen"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["William Kral <william.kral@gmail.com>"]
 edition = "2021"
 
@@ -9,7 +9,7 @@ edition = "2021"
 [dependencies]
 askama = "0.12.0"
 askama_escape = "0.10.3"
-clap = { version = "4.2.1", features = ["derive"] }
+clap = { version = "4.2.2", features = ["derive"] }
 const_format = "0.2.30"
 chrono = { version = "0.4.24", features = ["serde"] }
 chrono-utilities = "0.0.0-alpha1"
@@ -23,7 +23,7 @@ strum_macros = "0.24.3"
 thiserror = "1.0"
 
 [build-dependencies]
-clap = { version = "4.2.1", features = ["derive"] }
+clap = { version = "4.2.2", features = ["derive"] }
 clap_complete = "4.2.0"
 
 [dev-dependencies]
