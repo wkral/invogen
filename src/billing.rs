@@ -40,6 +40,7 @@ impl Period {
             Unit::Month => self.num_months(),
             Unit::Week => self.num_weeks(),
             Unit::Day => self.working_days(),
+            Unit::Hour => Decimal::from(0),
         }
     }
 
@@ -117,6 +118,7 @@ pub enum Unit {
     Month,
     Week,
     Day,
+    Hour,
 }
 
 #[derive(
@@ -242,6 +244,22 @@ impl InvoiceItem {
             amount,
         }
     }
+
+    pub fn new_hourly(
+        name: String,
+        rate: Rate,
+        period: Period,
+        quantity: Decimal,
+    ) -> Self {
+        let amount = rate.amount * quantity;
+        Self {
+            name,
+            rate,
+            period,
+            quantity,
+            amount,
+        }
+    }
 }
 
 impl fmt::Display for InvoiceItem {
@@ -306,9 +324,12 @@ impl Invoice {
             .items
             .iter()
             .map(|i| (i.period.from, i.period.until))
-            .fold((NaiveDate::MAX, NaiveDate::MIN), |(min, max), (from, until)| {
-                (cmp::min(min, from), cmp::max(max, until))
-            });
+            .fold(
+                (NaiveDate::MAX, NaiveDate::MIN),
+                |(min, max), (from, until)| {
+                    (cmp::min(min, from), cmp::max(max, until))
+                },
+            );
         Period::new(min, max)
     }
 }

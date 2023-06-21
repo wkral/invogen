@@ -74,6 +74,15 @@ pub fn period(billed_until: Option<NaiveDate>) -> InputResult<Period> {
     Ok(Period::new(from, until))
 }
 
+pub fn num_hours() -> InputResult<Decimal> {
+    let formatter: CustomTypeFormatter<Decimal> = &|i| format!("{:.0}", i);
+    let amount: Decimal = CustomType::new("Billable Hours:")
+        .with_formatter(formatter)
+        .with_error_message("Please type a valid number")
+        .prompt()?;
+    Ok(amount)
+}
+
 pub fn paid_date(issue_date: NaiveDate) -> InputResult<NaiveDate> {
     let today = Local::now().date_naive();
 

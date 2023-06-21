@@ -3,7 +3,7 @@ use std::fs::{self, File};
 use std::io::{self, BufReader};
 use std::path::PathBuf;
 
-use crate::billing::{Invoice, InvoiceItem, TaxRate};
+use crate::billing::{Invoice, InvoiceItem, TaxRate, Unit};
 use crate::cli::{Addable, Command, InvoiceView, Listable, Setable, Showable};
 use crate::clients::{Client, ClientError, Clients, Update};
 use crate::input;
@@ -211,8 +211,14 @@ fn invoice(client: &Client) -> MaybeEvent {
             .map(|s| s.rates.as_of(period.from))
             .flatten()
             .ok_or(ClientError::NoRate(client.key.clone(), period.from))?;
-        start = cmp::min(start, period.from);
-        items.push(InvoiceItem::new(name, rate.clone(), period));
+        let item = if rate.per == Unit::Hour {
+            let quantity = input::num_hours()?;
+            InvoiceItem::new_hourly(name, rate.clone(), period, quantity)
+        } else {
+            InvoiceItem::new(name, rate.clone(), period)
+        };
+        start = cmp::min(start, item.period.from);
+        items.push(item);
 
         if !input::another()? {
             break;
@@ -431,7 +437,7 @@ mod tests {
         };
         let event = Event(
             "innotech".to_string(),
-            Utc.ymd(2021, 04, 15).and_hms(10, 30, 0),
+            Utc.with_ymd_and_hms(2021, 04, 15, 10, 30, 0).single().unwrap(),
             change,
         );
         let sexpr = to_string(&event)?;
@@ -449,13 +455,13 @@ mod tests {
     fn serialize_update() -> Result<(), Error> {
         let update = Update::ServiceRate(
             "Stuff".to_string(),
-            NaiveDate::from_ymd(2021, 04, 15),
+            NaiveDate::from_ymd_opt(2021, 04, 15).unwrap(),
             billing_rate(),
         );
         let change = Change::Updated(update);
         let event = Event(
             "innotech".to_string(),
-            Utc.ymd(2021, 04, 16).and_hms(9, 30, 0),
+            Utc.with_ymd_and_hms(2021, 04, 16, 9, 30, 0).single().unwrap(),
             change,
         );
         let sexpr = to_string(&event)?;
@@ -472,7 +478,7 @@ mod tests {
         let clients = from_events(&events).unwrap();
 
         let client = clients.get(&"innotech".to_string())?;
-        let query_date = NaiveDate::from_ymd(2021, 04, 17);
+        let query_date = NaiveDate::from_ymd_opt(2021, 04, 17).unwrap();
         let service = client.services.get("Stuff").unwrap();
 
         assert_eq!(&client.address, "Some Place");

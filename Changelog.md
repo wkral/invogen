@@ -1,3 +1,16 @@
+# 0.1.3
+
+## Features
+
+- Bill by the hour within a billing period
+
+# 0.1.2
+
+## Features
+
+- Added Bash completion script generation
+- Dependency updates
+
 # 0.1.1
 
 ## Fixes
