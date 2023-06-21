@@ -3,6 +3,7 @@
 ## Features
 
 - Bill by the hour within a billing period
+- Dependency updates
 
 # 0.1.2
 
