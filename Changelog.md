@@ -1,3 +1,11 @@
+# 0.2.0
+
+## Features
+
+- Changed the event history file format to have one event per line, making it 
+  efficient to track event history in git
+- Added automatic migration from previous format
+
 # 0.1.3
 
 ## Features

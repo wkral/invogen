@@ -1,79 +1,27 @@
 use std::cmp;
-use std::fs::{self, File};
-use std::io::{self, BufReader};
 use std::path::PathBuf;
 
 use crate::billing::{Invoice, InvoiceItem, TaxRate, Unit};
 use crate::cli::{Addable, Command, InvoiceView, Listable, Setable, Showable};
-use crate::clients::{Client, ClientError, Clients, Update};
+use crate::clients::{
+    self, Change, Client, ClientError, Clients, Event, Update,
+};
 use crate::input;
 use crate::templates;
 
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use chrono::{Datelike, NaiveDate};
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-struct Event(String, DateTime<Utc>, Change);
-
-impl Event {
-    pub fn new(key: &str, change: Change) -> Self {
-        Self(key.to_string(), Utc::now(), change)
-    }
-    pub fn new_update(key: &str, update: Update) -> Self {
-        Self(key.to_string(), Utc::now(), Change::Updated(update))
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-enum Change {
-    Added { name: String, address: String },
-    Updated(Update),
-    Removed,
-}
-
-fn apply_event(
-    clients: &mut Clients,
-    event: &Event,
-) -> Result<(), ClientError> {
-    let Event(ref key, _, change) = event;
-    match change {
-        Change::Added { name, address } => {
-            clients.add(key, Client::new(key, name, address))
-        }
-        Change::Updated(update) => clients.update(key, update),
-        Change::Removed => clients.remove(key),
-    }
-}
-
-fn from_events(events: &Vec<Event>) -> Result<Clients, ClientError> {
-    let mut clients = Clients::new();
-    for event in events.iter() {
-        apply_event(&mut clients, event)?;
-    }
-    Ok(clients)
-}
 
 pub fn run_cmd_with_path(
     cmd: Command,
     history_path: &PathBuf,
 ) -> Result<(), RunError> {
-    let mut events: Vec<Event> = if history_path.as_path().exists() {
-        let history_file = File::open(history_path)?;
-        let reader = BufReader::new(history_file);
-        serde_lexpr::from_reader(reader)?
-    } else {
-        Vec::new()
-    };
+    let mut events = clients::events_from_file(history_path)?;
 
     if let Some(event) = run_cmd(cmd, &events)? {
         events.push(event);
-        let updated_path = history_path.with_extension("updated");
-        let f = File::create(&updated_path)?;
-
-        serde_lexpr::to_writer(f, &events)?;
-        fs::rename(updated_path, history_path)?;
+        clients::events_to_file(history_path, &events)?;
     }
     Ok(())
 }
@@ -81,7 +29,7 @@ pub fn run_cmd_with_path(
 type MaybeEvent = Result<Option<Event>, RunError>;
 
 fn run_cmd(cmd: Command, events: &Vec<Event>) -> MaybeEvent {
-    let mut clients = from_events(events)?;
+    let mut clients = Clients::from_events(events)?;
 
     if let Some(event) = match cmd {
         Command::Add { property } => match property {
@@ -109,7 +57,7 @@ fn run_cmd(cmd: Command, events: &Vec<Event>) -> MaybeEvent {
         }
         Command::Remove { client: _ } => Ok(None), // TODO impl
     }? {
-        apply_event(&mut clients, &event)?;
+        clients.apply_event(&event)?;
         Ok(Some(event))
     } else {
         Ok(None)
@@ -373,16 +321,10 @@ fn invoice_tex(invoice: &Invoice, client: &Client) -> MaybeEvent {
 
 #[derive(Debug, Error)]
 pub enum RunError {
-    #[error("IO Error: {source}")]
-    Io {
+    #[error("Error processing event history: {source}")]
+    Event {
         #[from]
-        source: io::Error,
-    },
-
-    #[error("Error decoding history: {source}")]
-    Format {
-        #[from]
-        source: serde_lexpr::Error,
+        source: clients::EventError,
     },
 
     #[error("Input Error: {source}")]
@@ -406,90 +348,13 @@ pub enum RunError {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
-    use crate::billing::{Currency, Money, Rate, Unit};
-    use chrono::{NaiveDate, TimeZone};
-    use const_format::formatcp;
-    use rust_decimal::Decimal;
-    use serde_lexpr::{from_str, to_string, Error};
-
-    fn billing_rate() -> Rate {
-        Rate {
-            amount: Money::new(Currency::USD, Decimal::from(1000)),
-            per: Unit::Month,
-        }
-    }
-
-    const RATE_RAW: &str = "(amount . #(USD 1000.0)) \
-         (per . Month)";
-
-    const CLIENT_ADD_STR: &str = formatcp!(
-        "#(\"innotech\" \"2021-04-15T10:30:00Z\" \
-           (Added (name . \"Innotech\") (address . \"Some Place\")))",
-    );
-
-    #[test]
-    fn serialize_event() -> Result<(), Error> {
-        let change = Change::Added {
-            name: "Innotech".to_string(),
-            address: "Some Place".to_string(),
-        };
-        let event = Event(
-            "innotech".to_string(),
-            Utc.with_ymd_and_hms(2021, 04, 15, 10, 30, 0).single().unwrap(),
-            change,
-        );
-        let sexpr = to_string(&event)?;
-        assert_eq!(sexpr, CLIENT_ADD_STR);
-        Ok(())
-    }
-
-    const RATE_UPDATE_STR: &str = formatcp!(
-        "#(\"innotech\" \"2021-04-16T09:30:00Z\" \
-           (Updated ServiceRate \"Stuff\" \"2021-04-15\" ({})))",
-        RATE_RAW
-    );
-
-    #[test]
-    fn serialize_update() -> Result<(), Error> {
-        let update = Update::ServiceRate(
-            "Stuff".to_string(),
-            NaiveDate::from_ymd_opt(2021, 04, 15).unwrap(),
-            billing_rate(),
-        );
-        let change = Change::Updated(update);
-        let event = Event(
-            "innotech".to_string(),
-            Utc.with_ymd_and_hms(2021, 04, 16, 9, 30, 0).single().unwrap(),
-            change,
-        );
-        let sexpr = to_string(&event)?;
-        assert_eq!(sexpr, RATE_UPDATE_STR);
-        Ok(())
-    }
-
-    const EVENTS_STR: &str =
-        formatcp!("({}\n{})", CLIENT_ADD_STR, RATE_UPDATE_STR);
-
-    #[test]
-    fn client_from_events() -> Result<(), RunError> {
-        let events: Vec<Event> = from_str(EVENTS_STR)?;
-        let clients = from_events(&events).unwrap();
-
-        let client = clients.get(&"innotech".to_string())?;
-        let query_date = NaiveDate::from_ymd_opt(2021, 04, 17).unwrap();
-        let service = client.services.get("Stuff").unwrap();
-
-        assert_eq!(&client.address, "Some Place");
-        assert_eq!(&service.name, "Stuff");
-        assert_eq!(service.rates.as_of(query_date), Some(&billing_rate()));
-        Ok(())
-    }
+    use crate::clients::tests::EVENTS_STR;
+    use serde_lexpr::from_str;
 
     #[test]
     fn list() -> Result<(), RunError> {
-        let history = from_str(EVENTS_STR)?;
+        let history = from_str(EVENTS_STR).unwrap();
         run_cmd(
             Command::List {
                 listing: Listable::Clients,

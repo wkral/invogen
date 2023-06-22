@@ -1,9 +1,14 @@
-use chrono::NaiveDate;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
 use std::collections::BTreeMap;
 use std::fmt;
+use std::fs::{self, File};
+use std::io::{self, BufRead, BufReader, Seek, Write};
+use std::path::PathBuf;
+
+use chrono::{DateTime, NaiveDate, Utc};
+use serde::ser::Error;
+use serde::{Deserialize, Serialize};
+use serde_lexpr;
+use thiserror::Error;
 
 use crate::billing::{Invoice, Rate, Service, TaxRate};
 use crate::historical::Historical;
@@ -132,6 +137,25 @@ impl fmt::Display for Client {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct Event(pub String, pub DateTime<Utc>, pub Change);
+
+impl Event {
+    pub fn new(key: &str, change: Change) -> Self {
+        Self(key.to_string(), Utc::now(), change)
+    }
+    pub fn new_update(key: &str, update: Update) -> Self {
+        Self(key.to_string(), Utc::now(), Change::Updated(update))
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub enum Change {
+    Added { name: String, address: String },
+    Updated(Update),
+    Removed,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Update {
     Address(String),
     Name(String),
@@ -181,6 +205,82 @@ impl Clients {
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Client> {
         self.0.values()
     }
+
+    pub fn from_events(events: &Vec<Event>) -> Result<Self, ClientError> {
+        let mut clients = Self::new();
+        for event in events.iter() {
+            clients.apply_event(&event)?;
+        }
+        Ok(clients)
+    }
+
+    pub fn apply_event(&mut self, event: &Event) -> Result<(), ClientError> {
+        let Event(ref key, _, change) = event;
+        match change {
+            Change::Added { name, address } => {
+                self.add(key, Client::new(key, name, address))
+            }
+            Change::Updated(update) => self.update(key, update),
+            Change::Removed => self.remove(key),
+        }
+    }
+}
+
+pub fn events_from_file(path: &PathBuf) -> Result<Vec<Event>, EventError> {
+    if !path.as_path().exists() {
+        Ok(Vec::new())
+    } else {
+        let file = File::open(path)?;
+        let mut reader = BufReader::new(file);
+
+        let funcs: Vec<
+            fn(&mut BufReader<File>) -> Result<Vec<Event>, EventError>,
+        > = vec![read_current_format, read_0_1_3_format];
+
+        for func in &funcs {
+            reader.rewind()?;
+            match func(&mut reader) {
+                Ok(events) => return Ok(events),
+                Err(_) => (),
+            };
+        }
+        Err(EventError::from(serde_lexpr::Error::custom(
+            "No existing or previous formats match the history file format",
+        )))
+    }
+}
+
+fn read_current_format(
+    reader: &mut BufReader<File>,
+) -> Result<Vec<Event>, EventError> {
+    let mut events: Vec<Event> = Vec::new();
+    for line in reader.lines() {
+        events.push(serde_lexpr::from_str(line?.as_str())?);
+    }
+    Ok(events)
+}
+
+fn read_0_1_3_format(
+    reader: &mut BufReader<File>,
+) -> Result<Vec<Event>, EventError> {
+    Ok(serde_lexpr::from_reader(reader)?)
+}
+
+pub fn events_to_file(
+    path: &PathBuf,
+    events: &Vec<Event>,
+) -> Result<(), EventError> {
+    let updated_path = path.with_extension("updated");
+
+    let mut f = File::create(&updated_path)?;
+    let newline = "\n".as_bytes();
+    for event in events.iter() {
+        serde_lexpr::to_writer(&mut f, &event)?;
+        f.write(newline)?;
+    }
+
+    fs::rename(updated_path, path)?;
+    Ok(())
 }
 
 #[derive(Debug, Error)]
@@ -196,6 +296,21 @@ pub enum ClientError {
 }
 
 #[derive(Debug, Error)]
+pub enum EventError {
+    #[error("IO Error: {source}")]
+    Io {
+        #[from]
+        source: io::Error,
+    },
+
+    #[error("Error decoding history: {source}")]
+    Format {
+        #[from]
+        source: serde_lexpr::Error,
+    },
+}
+
+#[derive(Debug, Error)]
 pub enum InvoiceError {
     #[error("found after {0}")]
     OutOfSequence(usize),
@@ -205,4 +320,92 @@ pub enum InvoiceError {
 
     #[error("was previously paid")]
     AlreadyPaid,
+}
+
+#[cfg(test)]
+pub mod tests {
+
+    use super::*;
+    use crate::billing::{Currency, Money, Rate, Unit};
+    use chrono::{NaiveDate, TimeZone, Utc};
+    use const_format::formatcp;
+    use rust_decimal::Decimal;
+    use serde_lexpr::{from_str, to_string, Error};
+
+    fn billing_rate() -> Rate {
+        Rate {
+            amount: Money::new(Currency::USD, Decimal::from(1000)),
+            per: Unit::Month,
+        }
+    }
+
+    const RATE_RAW: &str = "(amount . #(USD 1000.0)) \
+         (per . Month)";
+
+    const CLIENT_ADD_STR: &str = formatcp!(
+        "#(\"innotech\" \"2021-04-15T10:30:00Z\" \
+           (Added (name . \"Innotech\") (address . \"Some Place\")))",
+    );
+
+    #[test]
+    fn serialize_event() -> Result<(), Error> {
+        let change = Change::Added {
+            name: "Innotech".to_string(),
+            address: "Some Place".to_string(),
+        };
+        let event = Event(
+            "innotech".to_string(),
+            Utc.with_ymd_and_hms(2021, 04, 15, 10, 30, 0)
+                .single()
+                .unwrap(),
+            change,
+        );
+        let sexpr = to_string(&event)?;
+        assert_eq!(sexpr, CLIENT_ADD_STR);
+        Ok(())
+    }
+
+    const RATE_UPDATE_STR: &str = formatcp!(
+        "#(\"innotech\" \"2021-04-16T09:30:00Z\" \
+           (Updated ServiceRate \"Stuff\" \"2021-04-15\" ({})))",
+        RATE_RAW
+    );
+
+    #[test]
+    fn serialize_update() -> Result<(), Error> {
+        let update = Update::ServiceRate(
+            "Stuff".to_string(),
+            NaiveDate::from_ymd_opt(2021, 04, 15).unwrap(),
+            billing_rate(),
+        );
+        let change = Change::Updated(update);
+        let event = Event(
+            "innotech".to_string(),
+            Utc.with_ymd_and_hms(2021, 04, 16, 9, 30, 0)
+                .single()
+                .unwrap(),
+            change,
+        );
+        let sexpr = to_string(&event)?;
+        assert_eq!(sexpr, RATE_UPDATE_STR);
+        Ok(())
+    }
+
+    pub const EVENTS_STR: &str =
+        formatcp!("({}\n{})", CLIENT_ADD_STR, RATE_UPDATE_STR);
+
+    #[test]
+    fn client_from_events() -> Result<(), ClientError> {
+        let events: Vec<Event> = from_str(EVENTS_STR).unwrap();
+        let clients = Clients::from_events(&events)?;
+
+        let client = clients.get(&"innotech".to_string())?;
+        let query_date = NaiveDate::from_ymd_opt(2021, 04, 17).unwrap();
+        let service = client.services.get("Stuff").unwrap();
+
+        assert_eq!(&client.address, "Some Place");
+        assert_eq!(&service.name, "Stuff");
+        assert_eq!(service.rates.as_of(query_date), Some(&billing_rate()));
+        Ok(())
+    }
 }
