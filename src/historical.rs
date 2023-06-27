@@ -27,6 +27,6 @@ impl<T: Clone> Historical<T> {
     }
 
     pub fn insert(& mut self, effective: &NaiveDate, item: &T) {
-        self.history.insert(effective.clone(), item.clone());
+        self.history.insert(*effective, item.clone());
     }
 }

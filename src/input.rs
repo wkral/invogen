@@ -36,7 +36,7 @@ pub fn address() -> InputResult<String> {
         let line = Text::new(&format!("Address line {}:", count))
             .with_help_message("Hit <enter> on an empty line to stop input")
             .prompt()?;
-        let should_break = line == "";
+        let should_break = line.is_empty();
         addr_lines.push(line);
 
         if should_break {
@@ -92,7 +92,7 @@ pub fn paid_date(issue_date: NaiveDate) -> InputResult<NaiveDate> {
         .prompt()
 }
 
-pub fn service_select<'a>(services: Vec<&str>) -> InputResult<String> {
+pub fn service_select(services: Vec<&str>) -> InputResult<String> {
     let service = Select::new("Service:", services)
         .with_vim_mode(true)
         .prompt()?;
@@ -124,11 +124,11 @@ pub fn rate() -> InputResult<(Rate, NaiveDate)> {
     let effective = DateSelect::new("Effective:").prompt()?;
     let rate = Rate {
         amount: Money::new(
-            Currency::from_str(&currency)
+            Currency::from_str(currency)
                 .expect("only selecting from variants"),
             amount,
         ),
-        per: Unit::from_str(&unit).expect("only selecting from variants"),
+        per: Unit::from_str(unit).expect("only selecting from variants"),
     };
     Ok((rate, effective))
 }

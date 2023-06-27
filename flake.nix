@@ -22,6 +22,18 @@
             '';
           };
           default = invogen;
+          test = naersk-lib.buildPackage {
+            src = ./.;
+            mode = "test";
+          };
+          check = naersk-lib.buildPackage {
+            src = ./.;
+            mode = "check";
+          };
+          clippy = naersk-lib.buildPackage {
+            src = ./.;
+            mode = "clippy";
+          };
         };
         devShells.default = with pkgs; mkShell {
           nativeBuildInputs = [

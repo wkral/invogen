@@ -88,7 +88,7 @@ pub struct Service {
 impl Service {
     pub fn new(name: String) -> Self {
         Self {
-            name: name,
+            name,
             rates: Historical::new(),
         }
     }
@@ -154,7 +154,7 @@ impl Add<Money> for Money {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        Self(self.0.clone(), self.1 + other.1)
+        Self(self.0, self.1 + other.1)
     }
 }
 
@@ -163,7 +163,7 @@ impl Mul<Decimal> for Money {
 
     fn mul(self, other: Decimal) -> Self {
         Self(
-            self.0.clone(),
+            self.0,
             (self.1 * other).round_dp_with_strategy(
                 2,
                 RoundingStrategy::MidpointNearestEven,
@@ -293,7 +293,7 @@ impl Invoice {
             date,
             number,
             items,
-            tax_rates: tax_rates.clone(),
+            tax_rates,
             paid: None,
         }
     }

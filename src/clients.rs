@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::ser::Error;
 use serde::{Deserialize, Serialize};
-use serde_lexpr;
 use thiserror::Error;
 
 use crate::billing::{Invoice, Rate, Service, TaxRate};
@@ -60,9 +59,9 @@ impl Client {
                 let mut invoice = self
                     .invoices
                     .get_mut(num)
-                    .ok_or(ClientError::Invoice(num.clone(), NotFound))?;
+                    .ok_or(ClientError::Invoice(*num, NotFound))?;
                 if invoice.paid.is_some() {
-                    return Err(ClientError::Invoice(num.clone(), AlreadyPaid));
+                    return Err(ClientError::Invoice(*num, AlreadyPaid));
                 }
                 invoice.paid = Some(*when)
             }
@@ -81,8 +80,8 @@ impl Client {
         self.taxes
             .as_of(date)
             .into_iter()
-            .map(|i| i.clone())
             .flatten()
+            .cloned()
             .collect()
     }
 
@@ -90,8 +89,8 @@ impl Client {
         self.taxes
             .current()
             .into_iter()
-            .map(|i| i.clone())
             .flatten()
+            .cloned()
             .collect()
     }
 
@@ -105,10 +104,10 @@ impl Client {
     pub fn invoice(&self, num: &usize) -> Result<&Invoice, ClientError> {
         self.invoices
             .get(num)
-            .ok_or(ClientError::Invoice(num.clone(), InvoiceError::NotFound))
+            .ok_or(ClientError::Invoice(*num, InvoiceError::NotFound))
     }
 
-    pub fn service_names<'a>(&'a self) -> Vec<&'a str> {
+    pub fn service_names(&self) -> Vec<&str> {
         self.services
             .keys()
             .map(String::as_str)
@@ -119,11 +118,11 @@ impl Client {
         self.services.get(&name)
     }
 
-    pub fn invoices<'a>(&'a self) -> impl Iterator<Item = &'a Invoice> {
+    pub fn invoices(&self) -> impl Iterator<Item = &Invoice> {
         self.invoices.values()
     }
 
-    pub fn unpaid_invoices<'a>(&'a self) -> impl Iterator<Item = &'a usize> {
+    pub fn unpaid_invoices(&self) -> impl Iterator<Item = &usize> {
         self.invoices()
             .filter(|i| i.paid.is_none())
             .map(|i| &i.number)
@@ -173,10 +172,10 @@ impl Clients {
     }
     pub fn add(
         &mut self,
-        key: &String,
+        key: &str,
         client: Client,
     ) -> Result<(), ClientError> {
-        self.0.insert(key.clone(), client);
+        self.0.insert(key.to_owned(), client);
         Ok(())
     }
     pub fn get(&self, key: &String) -> Result<&Client, ClientError> {
@@ -202,14 +201,14 @@ impl Clients {
         client.update(update)?;
         Ok(())
     }
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Client> {
+    pub fn iter(&self) -> impl Iterator<Item = &Client> {
         self.0.values()
     }
 
-    pub fn from_events(events: &Vec<Event>) -> Result<Self, ClientError> {
+    pub fn from_events(events: &[Event]) -> Result<Self, ClientError> {
         let mut clients = Self::new();
         for event in events.iter() {
-            clients.apply_event(&event)?;
+            clients.apply_event(event)?;
         }
         Ok(clients)
     }
@@ -226,6 +225,8 @@ impl Clients {
     }
 }
 
+type FormatParser = fn(&mut BufReader<File>) -> Result<Vec<Event>, EventError>;
+
 pub fn events_from_file(path: &PathBuf) -> Result<Vec<Event>, EventError> {
     if !path.as_path().exists() {
         Ok(Vec::new())
@@ -233,15 +234,13 @@ pub fn events_from_file(path: &PathBuf) -> Result<Vec<Event>, EventError> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
 
-        let funcs: Vec<
-            fn(&mut BufReader<File>) -> Result<Vec<Event>, EventError>,
-        > = vec![read_current_format, read_0_1_3_format];
+        let funcs: Vec<FormatParser> =
+            vec![read_current_format, read_0_1_3_format];
 
         for func in &funcs {
             reader.rewind()?;
-            match func(&mut reader) {
-                Ok(events) => return Ok(events),
-                Err(_) => (),
+            if let Ok(events) = func(&mut reader) {
+                return Ok(events);
             };
         }
         Err(EventError::from(serde_lexpr::Error::custom(
@@ -268,15 +267,14 @@ fn read_0_1_3_format(
 
 pub fn events_to_file(
     path: &PathBuf,
-    events: &Vec<Event>,
+    events: &[Event],
 ) -> Result<(), EventError> {
     let updated_path = path.with_extension("updated");
 
     let mut f = File::create(&updated_path)?;
-    let newline = "\n".as_bytes();
     for event in events.iter() {
         serde_lexpr::to_writer(&mut f, &event)?;
-        f.write(newline)?;
+        f.write_all(b"\n")?;
     }
 
     fs::rename(updated_path, path)?;

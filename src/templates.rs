@@ -24,7 +24,7 @@ pub fn invoice<'a>(
     let data = InvoiceData {
         invoice,
         client_name: client.name.as_str(),
-        address_lines: client.address.split("\n").collect(),
+        address_lines: client.address.split('\n').collect(),
         total: &invoice.calculate(),
     };
 

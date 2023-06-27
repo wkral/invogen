@@ -28,7 +28,7 @@ pub fn run_cmd_with_path(
 
 type MaybeEvent = Result<Option<Event>, RunError>;
 
-fn run_cmd(cmd: Command, events: &Vec<Event>) -> MaybeEvent {
+fn run_cmd(cmd: Command, events: &[Event]) -> MaybeEvent {
     let mut clients = Clients::from_events(events)?;
 
     if let Some(event) = match cmd {
@@ -66,7 +66,7 @@ fn run_cmd(cmd: Command, events: &Vec<Event>) -> MaybeEvent {
 
 fn run_listings(clients: &Clients, listing: Listable) -> MaybeEvent {
     match listing {
-        Listable::Clients => list_clients(&clients),
+        Listable::Clients => list_clients(clients),
         Listable::Invoices { client } => list_invoices(clients.get(&client)?),
         Listable::Services { client } => list_services(clients.get(&client)?),
     }
@@ -156,8 +156,7 @@ fn invoice(client: &Client) -> MaybeEvent {
         let name = input::service_select(client.service_names())?;
         let rate = client
             .service(name.clone())
-            .map(|s| s.rates.as_of(period.from))
-            .flatten()
+            .and_then(|s| s.rates.as_of(period.from))
             .ok_or(ClientError::NoRate(client.key.clone(), period.from))?;
         let item = if rate.per == Unit::Hour {
             let quantity = input::num_hours()?;
@@ -260,7 +259,7 @@ fn mark_paid(invoice: &Invoice, client: &Client) -> MaybeEvent {
     Ok(input::confirm()?.then(|| {
         Event::new_update(
             &client.key,
-            Update::Paid(invoice.number.clone(), when),
+            Update::Paid(invoice.number, when),
         )
     }))
 }
@@ -354,7 +353,7 @@ mod tests {
 
     #[test]
     fn list() -> Result<(), RunError> {
-        let history = from_str(EVENTS_STR).unwrap();
+        let history: Vec<Event> = from_str(EVENTS_STR).unwrap();
         run_cmd(
             Command::List {
                 listing: Listable::Clients,
