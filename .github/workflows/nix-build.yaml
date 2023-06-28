@@ -1,0 +1,18 @@
+name: Nix Build
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v4
+      - name: Run the Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v1
+      - name: Run checks and Build Binary
+        run: |
+          nix build .#test
+          nix build .#check
+          nix build .#clippy
+          nix build .#
