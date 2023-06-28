@@ -134,11 +134,14 @@ pub enum Unit {
 )]
 pub enum Currency {
     #[strum(serialize = "CAD $")]
-    CAD,
+    #[serde(rename = "CAD")]
+    Cad,
     #[strum(serialize = "USD $")]
-    USD,
+    #[serde(rename = "USD")]
+    Usd,
     #[strum(serialize = "EUR €")]
-    EUR,
+    #[serde(rename = "EUR")]
+    Eur,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]

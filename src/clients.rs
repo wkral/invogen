@@ -332,7 +332,7 @@ pub mod tests {
 
     fn billing_rate() -> Rate {
         Rate {
-            amount: Money::new(Currency::USD, Decimal::from(1000)),
+            amount: Money::new(Currency::Usd, Decimal::from(1000)),
             per: Unit::Month,
         }
     }

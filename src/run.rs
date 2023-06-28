@@ -257,10 +257,7 @@ fn mark_paid(invoice: &Invoice, client: &Client) -> MaybeEvent {
 
     println!("Marking invoice #{} as paid on {}", invoice.number, when);
     Ok(input::confirm()?.then(|| {
-        Event::new_update(
-            &client.key,
-            Update::Paid(invoice.number, when),
-        )
+        Event::new_update(&client.key, Update::Paid(invoice.number, when))
     }))
 }
 
