@@ -1,5 +1,5 @@
-use clap_complete::{generate_to, shells::Bash};
 use clap::CommandFactory;
+use clap_complete::{generate_to, shells::Bash};
 use std::env;
 use std::io::Error;
 
@@ -13,12 +13,7 @@ fn main() -> Result<(), Error> {
 
     let mut cmd = Opts::command();
 
-    let path = generate_to(
-        Bash,
-        &mut cmd, 
-        "invogen",
-        outdir,
-    )?;
+    let path = generate_to(Bash, &mut cmd, "invogen", outdir)?;
 
     println!("cargo:rerun-if-changed=src/cli.rs");
     println!("cargo:rerun-if-changed=build.rs");

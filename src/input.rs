@@ -124,8 +124,7 @@ pub fn rate() -> InputResult<(Rate, NaiveDate)> {
     let effective = DateSelect::new("Effective:").prompt()?;
     let rate = Rate {
         amount: Money::new(
-            Currency::from_str(currency)
-                .expect("only selecting from variants"),
+            Currency::from_str(currency).expect("only selecting from variants"),
             amount,
         ),
         per: Unit::from_str(unit).expect("only selecting from variants"),

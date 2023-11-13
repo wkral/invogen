@@ -12,7 +12,4 @@ jobs:
         uses: DeterminateSystems/magic-nix-cache-action@v1
       - name: Run checks and Build Binary
         run: |
-          nix build .#test
-          nix build .#check
-          nix build .#clippy
-          nix build .#
+          nix flake check

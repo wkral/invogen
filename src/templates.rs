@@ -20,7 +20,6 @@ pub fn invoice<'a>(
     invoice: &'a Invoice,
     client: &'a Client,
 ) -> Result<(), RunError> {
-
     let data = InvoiceData {
         invoice,
         client_name: client.name.as_str(),
@@ -40,13 +39,13 @@ impl Escaper for Tex {
     where
         W: fmt::Write,
     {
-         for c in string.chars() {
+        for c in string.chars() {
             match c {
                 '%' => fmt.write_str("\\%")?,
                 '$' => fmt.write_str("\\$")?,
                 _ => fmt.write_char(c)?,
             }
-         }
-         Ok(())
+        }
+        Ok(())
     }
 }

@@ -44,11 +44,11 @@ mod cli;
 mod clients;
 mod historical;
 mod input;
-mod templates;
 mod run;
+mod templates;
 
-use clap::Parser;
 use crate::cli::Opts;
+use clap::Parser;
 
 fn main() {
     let opts = Opts::parse();

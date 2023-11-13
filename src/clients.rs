@@ -56,7 +56,7 @@ impl Client {
                 self.invoices.insert(invoice.number, invoice.clone());
             }
             Update::Paid(num, when) => {
-                let mut invoice = self
+                let invoice = self
                     .invoices
                     .get_mut(num)
                     .ok_or(ClientError::Invoice(*num, NotFound))?;
@@ -353,7 +353,7 @@ pub mod tests {
         };
         let event = Event(
             "innotech".to_string(),
-            Utc.with_ymd_and_hms(2021, 04, 15, 10, 30, 0)
+            Utc.with_ymd_and_hms(2021, 4, 15, 10, 30, 0)
                 .single()
                 .unwrap(),
             change,
@@ -373,13 +373,13 @@ pub mod tests {
     fn serialize_update() -> Result<(), Error> {
         let update = Update::ServiceRate(
             "Stuff".to_string(),
-            NaiveDate::from_ymd_opt(2021, 04, 15).unwrap(),
+            NaiveDate::from_ymd_opt(2021, 4, 15).unwrap(),
             billing_rate(),
         );
         let change = Change::Updated(update);
         let event = Event(
             "innotech".to_string(),
-            Utc.with_ymd_and_hms(2021, 04, 16, 9, 30, 0)
+            Utc.with_ymd_and_hms(2021, 4, 16, 9, 30, 0)
                 .single()
                 .unwrap(),
             change,
@@ -398,7 +398,7 @@ pub mod tests {
         let clients = Clients::from_events(&events)?;
 
         let client = clients.get(&"innotech".to_string())?;
-        let query_date = NaiveDate::from_ymd_opt(2021, 04, 17).unwrap();
+        let query_date = NaiveDate::from_ymd_opt(2021, 4, 17).unwrap();
         let service = client.services.get("Stuff").unwrap();
 
         assert_eq!(&client.address, "Some Place");

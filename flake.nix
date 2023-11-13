@@ -1,52 +1,53 @@
 {
   inputs = {
-    naersk.url = "github:nix-community/naersk/master";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, utils, naersk }:
+  outputs = { self, nixpkgs, utils, crane }:
     utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        naersk-lib = pkgs.callPackage naersk { };
+        craneLib = crane.lib.${system};
+        texFilter = path: _type: builtins.match ".*tex$" path != null;
+        texOrCargo = path: type: (texFilter path type) || (craneLib.filterCargoSources path type);
+
+        src = nixpkgs.lib.cleanSourceWith {
+          src = craneLib.path ./.;
+          filter = texOrCargo;
+        };
+        commonArgs = {
+          inherit src;
+          strictDeps = true;
+          buildInputs = [ pkgs.installShellFiles ];
+          nativeBuildInputs = [ pkgs.openssl ];
+          postBuild = ''
+            installShellCompletion target/release/build/invogen-*/out/invogen.bash
+          '';
+        };
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        invogen = craneLib.buildPackage (commonArgs // {
+          inherit cargoArtifacts;
+        });
       in
       {
-        packages = rec {
-          invogen = naersk-lib.buildPackage {
-            src = ./.;
-            buildInputs = [ pkgs.installShellFiles ];
-            nativeBuildInputs = [ pkgs.openssl ];
-            postBuild = ''
-              installShellCompletion target/release/build/invogen-*/out/invogen.bash
-            '';
-          };
-          default = invogen;
-          test = naersk-lib.buildPackage {
-            src = ./.;
-            mode = "test";
-          };
-          check = naersk-lib.buildPackage {
-            src = ./.;
-            mode = "check";
-          };
-          clippy = naersk-lib.buildPackage {
-            src = ./.;
-            mode = "clippy";
+        checks = {
+          inherit invogen;
+          invogen-clippy = craneLib.cargoClippy (commonArgs // {
+            inherit cargoArtifacts;
+            cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+          });
+          invogen-format = craneLib.cargoFmt {
+            inherit src;
           };
         };
-        devShells.default = with pkgs; mkShell {
-          nativeBuildInputs = [
-            cargo
-            cargo-outdated
-            rustc
-            rustfmt
-            rust-analyzer
-            pre-commit
-            openssl
-            rustPackages.clippy
-          ];
-          RUST_SRC_PATH = rustPlatform.rustLibSrc;
+        packages.default = invogen;
+        devShells.default = craneLib.devShell {
+          checks = self.checks.${system};
         };
       });
 }

@@ -26,7 +26,7 @@ impl<T: Clone> Historical<T> {
         self.as_of(Local::now().date_naive())
     }
 
-    pub fn insert(& mut self, effective: &NaiveDate, item: &T) {
+    pub fn insert(&mut self, effective: &NaiveDate, item: &T) {
         self.history.insert(*effective, item.clone());
     }
 }
