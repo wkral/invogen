@@ -46,8 +46,12 @@
           };
         };
         packages.default = invogen;
+        packages.invogen = invogen;
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
+          packages = [
+            pkgs.cargo-outdated
+          ];
         };
       });
 }
