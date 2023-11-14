@@ -40,6 +40,7 @@
  */
 
 mod billing;
+mod calendar;
 mod cli;
 mod clients;
 mod historical;

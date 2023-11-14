@@ -3,11 +3,11 @@ use std::fmt;
 use std::ops::{Add, Mul};
 
 use chrono::{Datelike, Local, NaiveDate};
-use chrono_utilities::naive::DateTransitions;
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString, EnumVariantNames};
 
+use crate::calendar::DateBoundaries;
 use crate::historical::Historical;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -56,12 +56,8 @@ impl Period {
 
     fn num_weeks(&self) -> Decimal {
         let full_period = Self::new(
-            self.from
-                .start_of_iso8601_week()
-                .expect("Error in chrono utils"),
-            self.until
-                .end_of_iso8601_week()
-                .expect("Error in chrono utils"),
+            self.from.start_of_week().expect("Error in chrono utils"),
+            self.until.end_of_week().expect("Error in chrono utils"),
         );
         let distinct_weeks = Decimal::from(
             self.from
