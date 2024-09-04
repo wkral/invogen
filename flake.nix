@@ -1,10 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
     utils.url = "github:numtide/flake-utils";
   };
 
@@ -12,7 +9,7 @@
     utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
-        craneLib = crane.lib.${system};
+        craneLib = crane.mkLib pkgs;
         texFilter = path: _type: builtins.match ".*tex$" path != null;
         texOrCargo = path: type: (texFilter path type) || (craneLib.filterCargoSources path type);
 
