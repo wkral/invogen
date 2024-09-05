@@ -5,7 +5,7 @@ use std::ops::{Add, Mul};
 use chrono::{Datelike, Local, NaiveDate};
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::{Deserialize, Serialize};
-use strum_macros::{Display, EnumString, EnumVariantNames};
+use strum_macros::{Display, EnumString, VariantNames};
 
 use crate::calendar::DateBoundaries;
 use crate::historical::Historical;
@@ -103,7 +103,7 @@ impl fmt::Display for Service {
 #[derive(
     Display,
     EnumString,
-    EnumVariantNames,
+    VariantNames,
     Serialize,
     Deserialize,
     Debug,
@@ -120,7 +120,7 @@ pub enum Unit {
 #[derive(
     Display,
     EnumString,
-    EnumVariantNames,
+    VariantNames,
     Serialize,
     Deserialize,
     Debug,
