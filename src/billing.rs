@@ -9,6 +9,7 @@ use strum_macros::{Display, EnumString, VariantNames};
 
 use crate::calendar::DateBoundaries;
 use crate::historical::Historical;
+use crate::ledger_fmt::LedgerDisplay;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct Period {
@@ -140,6 +141,16 @@ pub enum Currency {
     Eur,
 }
 
+impl LedgerDisplay for Currency {
+    fn ledger_fmt(&self, buf: &mut (dyn fmt::Write)) -> fmt::Result{
+        match self {
+            Currency::Cad => write!(buf, "$"),
+            Currency::Usd => write!(buf, "USD$"),
+            Currency::Eur => write!(buf, "EUR€"),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 pub struct Money(Currency, Decimal);
 
@@ -174,6 +185,19 @@ impl Mul<Decimal> for Money {
 impl fmt::Display for Money {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{:.2}", self.0, self.1)
+    }
+}
+
+impl LedgerDisplay for Money {
+    fn ledger_fmt(&self, buf: &mut (dyn fmt::Write)) -> fmt::Result {
+        self.0.ledger_fmt(buf)?;
+        self.1.ledger_fmt(buf)
+    }
+}
+
+impl LedgerDisplay for Decimal {
+    fn ledger_fmt(&self, buf: &mut (dyn fmt::Write)) -> fmt::Result {
+        write!{buf, "{:.2}", self}
     }
 }
 

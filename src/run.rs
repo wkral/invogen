@@ -7,6 +7,7 @@ use crate::clients::{
     self, Change, Client, ClientError, Clients, Event, Update,
 };
 use crate::input;
+use crate::ledger_fmt::ledger_fmt;
 use crate::templates;
 
 use chrono::{Datelike, NaiveDate};
@@ -278,18 +279,18 @@ fn invoice_posting(invoice: &Invoice, client: &Client) -> MaybeEvent {
 
     items.push((
         format!("assets:receivable:{}", client.name),
-        format!("{}", total.subtotal),
+        ledger_fmt(total.subtotal),
     ));
 
     for (TaxRate(name, _), amount) in total.taxes.iter() {
         items.push((
             format!("assets:receivable:{}", name),
-            format!("{}", amount),
+            ledger_fmt(*amount),
         ));
     }
     items.push((
         format!("revenues:clients:{}", client.name),
-        format!("{}", total.total * Decimal::from(-1)),
+        ledger_fmt(total.total * Decimal::from(-1)),
     ));
 
     println!(
