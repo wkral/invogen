@@ -283,10 +283,8 @@ fn invoice_posting(invoice: &Invoice, client: &Client) -> MaybeEvent {
     ));
 
     for (TaxRate(name, _), amount) in total.taxes.iter() {
-        items.push((
-            format!("assets:receivable:{}", name),
-            ledger_fmt(*amount),
-        ));
+        items
+            .push((format!("assets:receivable:{}", name), ledger_fmt(*amount)));
     }
     items.push((
         format!("revenues:clients:{}", client.name),

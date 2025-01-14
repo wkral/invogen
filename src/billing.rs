@@ -142,7 +142,7 @@ pub enum Currency {
 }
 
 impl LedgerDisplay for Currency {
-    fn ledger_fmt(&self, buf: &mut (dyn fmt::Write)) -> fmt::Result{
+    fn ledger_fmt(&self, buf: &mut (dyn fmt::Write)) -> fmt::Result {
         match self {
             Currency::Cad => write!(buf, "$"),
             Currency::Usd => write!(buf, "USD$"),
@@ -197,7 +197,7 @@ impl LedgerDisplay for Money {
 
 impl LedgerDisplay for Decimal {
     fn ledger_fmt(&self, buf: &mut (dyn fmt::Write)) -> fmt::Result {
-        write!{buf, "{:.2}", self}
+        write! {buf, "{:.2}", self}
     }
 }
 
