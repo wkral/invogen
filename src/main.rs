@@ -45,9 +45,9 @@ mod cli;
 mod clients;
 mod historical;
 mod input;
+mod ledger_fmt;
 mod run;
 mod templates;
-mod ledger_fmt;
 
 use crate::cli::Opts;
 use clap::Parser;
