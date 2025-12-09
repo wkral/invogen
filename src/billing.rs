@@ -199,7 +199,7 @@ impl LedgerDisplay for Money {
 
 impl LedgerDisplay for Decimal {
     fn ledger_fmt(&self, buf: &mut dyn fmt::Write) -> fmt::Result {
-        let mut copy = self.clone();
+        let mut copy = *self;
         copy.rescale(2);
 
         let whole = copy
