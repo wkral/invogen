@@ -5,7 +5,7 @@ use crate::clients::Client;
 use crate::run::RunError;
 
 use askama::Template;
-use askama_escape::Escaper;
+use askama::filters::Escaper;
 
 #[derive(Template)]
 #[template(path = "invoice.tex")]
@@ -32,10 +32,11 @@ pub fn invoice<'a>(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Tex;
 
 impl Escaper for Tex {
-    fn write_escaped<W>(&self, mut fmt: W, string: &str) -> fmt::Result
+    fn write_escaped_str<W>(&self, mut fmt: W, string: &str) -> fmt::Result
     where
         W: fmt::Write,
     {

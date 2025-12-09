@@ -3,24 +3,24 @@
 \begin{document}
 
   \begin{invoiceHead}
-  \begin{billto}{<<client_name>>}
-    <^ for line in address_lines ^>
-      <<line>>\\
-    <^ endfor ^>
+  \begin{billto}{<%client_name%>}
+    <@ for line in address_lines @>
+      <%line%>\\
+    <@ endfor @>
     \end{billto}
 
-    \invoiceDetails{<<invoice.number>> }{<<invoice.date>>}{<<total.total>>}
+    \invoiceDetails{<%invoice.number%> }{<%invoice.date%>}{<%total.total%>}
   \end{invoiceHead}
 
   \begin{invoiceTable}
-    <^for item in invoice.items^>
-    \lineitem{<<item.name>>}{<<item.period>>}{<<item.quantity>>}{<<item.rate>>}{<<item.amount>>}
-    <^ endfor ^>
-    \subtotal{<<total.subtotal>>}
-    <^for (rate, amount) in total.taxes^>
-    \taxitem{<<rate>>}{<<amount>>}
-    <^ endfor ^>
-    \total{<<total.total>>}
+    <@for item in invoice.items@>
+    \lineitem{<%item.name%>}{<%item.period%>}{<%item.quantity%>}{<%item.rate%>}{<%item.amount%>}
+    <@ endfor @>
+    \subtotal{<%total.subtotal%>}
+    <@for (rate, amount) in total.taxes@>
+    \taxitem{<%rate%>}{<%amount%>}
+    <@ endfor @>
+    \total{<%total.total%>}
   \end{invoiceTable}
 
 \end{document}
