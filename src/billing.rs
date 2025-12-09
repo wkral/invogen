@@ -3,6 +3,8 @@ use std::fmt;
 use std::ops::{Add, Mul};
 
 use chrono::{Datelike, Local, NaiveDate};
+use num_format::{Locale, ToFormattedString};
+use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString, VariantNames};
@@ -142,11 +144,11 @@ pub enum Currency {
 }
 
 impl LedgerDisplay for Currency {
-    fn ledger_fmt(&self, buf: &mut (dyn fmt::Write)) -> fmt::Result {
+    fn ledger_fmt(&self, buf: &mut dyn fmt::Write) -> fmt::Result {
         match self {
             Currency::Cad => write!(buf, "$"),
             Currency::Usd => write!(buf, "USD$"),
-            Currency::Eur => write!(buf, "EUR€"),
+            Currency::Eur => write!(buf, "€"),
         }
     }
 }
@@ -189,15 +191,27 @@ impl fmt::Display for Money {
 }
 
 impl LedgerDisplay for Money {
-    fn ledger_fmt(&self, buf: &mut (dyn fmt::Write)) -> fmt::Result {
+    fn ledger_fmt(&self, buf: &mut dyn fmt::Write) -> fmt::Result {
         self.0.ledger_fmt(buf)?;
         self.1.ledger_fmt(buf)
     }
 }
 
 impl LedgerDisplay for Decimal {
-    fn ledger_fmt(&self, buf: &mut (dyn fmt::Write)) -> fmt::Result {
-        write! {buf, "{:.2}", self}
+    fn ledger_fmt(&self, buf: &mut dyn fmt::Write) -> fmt::Result {
+        let mut copy = self.clone();
+        copy.rescale(2);
+
+        let whole = copy
+            .trunc()
+            .to_i64()
+            .map(|n| n.to_formatted_string(&Locale::en))
+            .unwrap();
+
+        let mut fraction = copy.fract() * Decimal::from(100);
+        fraction.rescale(0);
+
+        write! {buf, "{}.{:02}", &whole, &fraction}
     }
 }
 
@@ -371,5 +385,44 @@ impl fmt::Display for Invoice {
         }
 
         write!(f, "\n\n{}", self.calculate())
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::ledger_fmt::ledger_fmt;
+    use rust_decimal_macros::dec;
+
+    #[test]
+    fn posting_decimal_display() {
+        assert_eq!(ledger_fmt(dec!(99.99)), "99.99");
+        assert_eq!(ledger_fmt(dec!(0)), "0.00");
+        assert_eq!(ledger_fmt(dec!(99)), "99.00");
+        assert_eq!(ledger_fmt(dec!(99.999)), "100.00");
+        assert_eq!(ledger_fmt(dec!(99.001)), "99.00");
+        assert_eq!(ledger_fmt(dec!(567.89)), "567.89");
+        assert_eq!(ledger_fmt(dec!(4567.89)), "4,567.89");
+        assert_eq!(ledger_fmt(dec!(1234567.89)), "1,234,567.89");
+    }
+
+    #[test]
+    fn posting_money_display() {
+        assert_eq!(
+            ledger_fmt(Money::new(Currency::Eur, dec!(99.99))),
+            "€99.99"
+        );
+        assert_eq!(
+            ledger_fmt(Money::new(Currency::Eur, dec!(1234567.89))),
+            "€1,234,567.89"
+        );
+        assert_eq!(
+            ledger_fmt(Money::new(Currency::Cad, dec!(1234567.89))),
+            "$1,234,567.89"
+        );
+        assert_eq!(
+            ledger_fmt(Money::new(Currency::Usd, dec!(1234567.89))),
+            "USD$1,234,567.89"
+        );
     }
 }
