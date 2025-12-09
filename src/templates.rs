@@ -4,8 +4,8 @@ use crate::billing::{Invoice, InvoiceTotal};
 use crate::clients::Client;
 use crate::run::RunError;
 
-use askama::Template;
 use askama::filters::Escaper;
+use askama::Template;
 
 #[derive(Template)]
 #[template(path = "invoice.tex")]
